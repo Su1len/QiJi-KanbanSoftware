@@ -1,0 +1,43 @@
+{
+  "themeName": "墨绿",
+  "themeAuthor": "骐骥官方",
+  "version": "1.0.0",
+  "darkMode": true,
+
+  "colorScheme": {
+    "bgPrimary": "#1a2e1d",
+    "bgSecondary": "#162919",
+    "bgCard": "#244028",
+    "bgHover": "#2a4a30",
+    "accent": "#4fc48f",
+    "accentHover": "#6bd4a5",
+    "textPrimary": "#e0f0e4",
+    "textSecondary": "#8aa890",
+    "textMuted": "#5a7860",
+    "border": "#2e4d30",
+    "success": "#52c41a",
+    "warning": "#faad14",
+    "danger": "#ff4d4f",
+    "info": "#4fc48f"
+  },
+
+  "fontOverrides": {
+    "titleFont": "\"Microsoft YaHei\", \"PingFang SC\", sans-serif",
+    "bodyFont": "\"Microsoft YaHei\", \"PingFang SC\", sans-serif"
+  },
+
+  "textOverrides": {
+    "appTitle": "骐骥看板 - 墨韵"
+  },
+
+  "imageOverrides": [
+    {
+      "targetComponent": "KanbanBoard",
+      "color1": "#1a2e1d",
+      "color2": "#244028",
+      "opacity": 0.5,
+      "position": "center",
+      "size": "cover"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "themeName": "自定义示例",
+  "themeAuthor": "你的名字",
+  "version": "1.0.0",
+  "hidden": true,
+  "darkMode": true,
+
+  "colorScheme": {
+    "bgPrimary": "#1a1a2e",
+    "bgSecondary": "#16213e",
+    "bgCard": "#0f3460",
+    "bgHover": "#1a3a6e",
+    "accent": "#e94560",
+    "accentHover": "#ff6b81",
+    "textPrimary": "#eee",
+    "textSecondary": "#a0a0b0",
+    "textMuted": "#606070",
+    "border": "#2a2a4a",
+    "success": "#2ecc71",
+    "warning": "#f39c12",
+    "danger": "#e74c3c",
+    "info": "#e94560"
+  },
+
+  "fontOverrides": {
+    "titleFont": "\"Microsoft YaHei\", sans-serif",
+    "bodyFont": "\"Microsoft YaHei\", sans-serif"
+  },
+
+  "textOverrides": {
+    "newTaskButton": "发起新任务",
+    "aiAssistantButton": "召唤AI",
+    "deleteTaskButton": "移除"
+  },
+
+  "imageOverrides": [
+    {
+      "targetComponent": "KanbanBoard",
+      "imagePath": "/themes/custom-example/bg-kanban.png",
+      "opacity": 0.08,
+      "position": "center",
+      "size": "cover"
+    },
+    {
+      "targetComponent": "BottomBar",
+      "imagePath": "/themes/custom-example/bg-bottom.png",
+      "opacity": 0.15,
+      "position": "right bottom",
+      "size": "auto"
+    }
+  ]
+}

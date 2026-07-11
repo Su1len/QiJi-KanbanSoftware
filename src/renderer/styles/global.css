@@ -1,0 +1,90 @@
+/* ===== 骐骥看板 — 全局样式 ===== */
+
+/* CSS 变量 — 默认深蓝主题（动态主题会通过 JS 覆盖这些值） */
+:root {
+  --color-bg-primary: #1a1d2e;
+  --color-bg-secondary: #161929;
+  --color-bg-card: #242840;
+  --color-bg-hover: #2a2f4a;
+  --color-accent: #4f8cff;
+  --color-accent-hover: #6ba1ff;
+  --color-text-primary: #e8eaf0;
+  --color-text-secondary: #8a8fa8;
+  --color-text-muted: #5a5f78;
+  --color-border: #2e334d;
+  --color-success: #52c41a;
+  --color-warning: #faad14;
+  --color-danger: #ff4d4f;
+  --color-info: #4f8cff;
+
+  --font-family: -apple-system, "Microsoft YaHei", "PingFang SC", sans-serif;
+  --font-mono: "Cascadia Code", "Fira Code", "Consolas", monospace;
+  --font-size-base: 14px;
+  --font-size-sm: 12px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+
+  --border-radius: 6px;
+  --border-radius-lg: 12px;
+}
+
+/* 全局重置 */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font-family);
+  font-size: var(--font-size-base);
+  color: var(--color-text-primary);
+  background-color: var(--color-bg-primary);
+}
+
+/* Ant Design 深色主题覆盖 */
+.ant-table {
+  background: var(--color-bg-card) !important;
+}
+
+.ant-table-thead > tr > th {
+  background: var(--color-bg-secondary) !important;
+  color: var(--color-text-primary) !important;
+  border-bottom: 1px solid var(--color-border) !important;
+}
+
+.ant-table-tbody > tr > td {
+  border-bottom: 1px solid var(--color-border) !important;
+}
+
+.ant-table-tbody > tr:hover > td {
+  background: var(--color-bg-hover) !important;
+}
+
+/* 滚动条美化 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}

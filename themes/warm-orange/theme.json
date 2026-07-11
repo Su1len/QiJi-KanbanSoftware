@@ -1,0 +1,43 @@
+{
+  "themeName": "暖橙",
+  "themeAuthor": "骐骥官方",
+  "version": "1.0.0",
+  "darkMode": true,
+
+  "colorScheme": {
+    "bgPrimary": "#2e1d1a",
+    "bgSecondary": "#291916",
+    "bgCard": "#402824",
+    "bgHover": "#4a3028",
+    "accent": "#ff8c4f",
+    "accentHover": "#ffa873",
+    "textPrimary": "#f0e4e0",
+    "textSecondary": "#a89088",
+    "textMuted": "#786058",
+    "border": "#4d3028",
+    "success": "#52c41a",
+    "warning": "#faad14",
+    "danger": "#ff4d4f",
+    "info": "#ff8c4f"
+  },
+
+  "fontOverrides": {
+    "titleFont": "\"Microsoft YaHei\", \"PingFang SC\", sans-serif",
+    "bodyFont": "\"Microsoft YaHei\", \"PingFang SC\", sans-serif"
+  },
+
+  "textOverrides": {
+    "appTitle": "骐骥看板 - 暖阳"
+  },
+
+  "imageOverrides": [
+    {
+      "targetComponent": "KanbanBoard",
+      "color1": "#2e1d1a",
+      "color2": "#402824",
+      "opacity": 0.5,
+      "position": "center",
+      "size": "cover"
+    }
+  ]
+}

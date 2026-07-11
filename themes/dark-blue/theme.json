@@ -1,0 +1,32 @@
+{
+  "themeName": "深蓝",
+  "themeAuthor": "骐骥官方",
+  "version": "1.0.0",
+  "darkMode": true,
+
+  "colorScheme": {
+    "bgPrimary": "#1a1d2e",
+    "bgSecondary": "#161929",
+    "bgCard": "#242840",
+    "bgHover": "#2a2f4a",
+    "accent": "#4f8cff",
+    "accentHover": "#6ba1ff",
+    "textPrimary": "#e8eaf0",
+    "textSecondary": "#8a8fa8",
+    "textMuted": "#5a5f78",
+    "border": "#2e334d",
+    "success": "#52c41a",
+    "warning": "#faad14",
+    "danger": "#ff4d4f",
+    "info": "#4f8cff"
+  },
+
+  "fontOverrides": {
+    "titleFont": "\"Microsoft YaHei\", \"PingFang SC\", sans-serif",
+    "bodyFont": "\"Microsoft YaHei\", \"PingFang SC\", sans-serif"
+  },
+
+  "textOverrides": {},
+
+  "imageOverrides": []
+}

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+body{margin:0;background:#1a1d2e;color:#e8eaf0;font-family:"Microsoft YaHei",sans-serif;display:flex;justify-content:center;align-items:center;height:100vh}
+.status{text-align:center;max-width:400px}
+.status h2{margin-bottom:12px}
+.status p{color:#8a8fa8;font-size:14px;margin:4px 0;white-space:pre-line}
+.error{color:#ff4d4f!important}
+</style>
+</head>
+<body>
+<div class="status">
+  <h2>骐骥看板</h2>
+  <p id="msg">正在启动服务...</p>
+</div>
+<script>
+var msgEl = document.getElementById('msg');
+function show(msg, isError) {
+  msgEl.textContent = msg;
+  if (isError) msgEl.className = 'error';
+}
+
+var path = require('path');
+var spawn = require('child_process').spawn;
+var fs = require('fs');
+var net = require('net');
+
+var PORT_FILE = path.join(process.cwd(), 'data', 'server-port.txt');
+var ERR_FILE  = path.join(process.cwd(), 'data', 'server-error.txt');
+var BASE_PORT = 3456;
+var pollCount = 0;
+var MAX_POLL = 100; // ~30 seconds
+
+// Clean old files
+try { fs.unlinkSync(PORT_FILE); } catch(e) {}
+try { fs.unlinkSync(ERR_FILE); } catch(e) {}
+
+// Check if server is already running on base port
+var testSocket = new net.Socket();
+testSocket.setTimeout(500);
+testSocket.connect(BASE_PORT, '127.0.0.1', function() {
+  testSocket.destroy();
+  show('服务已在运行，进入看板...');
+  navigateIn(BASE_PORT);
+});
+
+testSocket.on('error', function() {
+  testSocket.destroy();
+  startServer();
+});
+
+function startServer() {
+  var nodeExe = path.join(process.cwd(), 'node-portable', 'node.exe');
+  var serverJs = path.join(process.cwd(), 'dist', 'server', 'index.js');
+  show('正在启动服务器...');
+
+  var server = spawn(nodeExe, [serverJs], {
+    cwd: process.cwd(),
+    stdio: 'pipe',
+  });
+
+  server.on('error', function(err) {
+    show('启动失败：无法运行服务器\n请检查 node-portable/node.exe 是否存在', true);
+  });
+
+  server.on('close', function(code) {
+    // Server exited before writing port file — check error file
+    setTimeout(function() {
+      try {
+        var errMsg = fs.readFileSync(ERR_FILE, 'utf8').trim();
+        if (errMsg) {
+          show('启动失败：\n' + errMsg + '\n\n请关闭占用端口的程序后重试', true);
+          return;
+        }
+      } catch(e) {}
+      // No error file either — server crashed silently
+      if (pollCount === 0) {
+        show('启动失败：服务器异常退出\n请检查 data/ 目录下是否有错误日志', true);
+      }
+    }, 500);
+  });
+
+  pollForResult();
+}
+
+function pollForResult() {
+  pollCount++;
+
+  // Check for error file
+  try {
+    var errMsg = fs.readFileSync(ERR_FILE, 'utf8').trim();
+    if (errMsg) {
+      show('启动失败：\n' + errMsg + '\n\n请关闭占用端口的程序后重试', true);
+      return;
+    }
+  } catch(e) {}
+
+  // Check for port file
+  try {
+    var port = parseInt(fs.readFileSync(PORT_FILE, 'utf8').trim(), 10);
+    if (port > 0) {
+      show('进入看板...');
+      navigateIn(port);
+      return;
+    }
+  } catch(e) {}
+
+  // Timeout?
+  if (pollCount >= MAX_POLL) {
+    show('启动超时（等待超过30秒）\n请重启软件或检查端口占用', true);
+    return;
+  }
+
+  setTimeout(pollForResult, 300);
+}
+
+function navigateIn(port) {
+  window.location.href = 'http://localhost:' + port;
+}
+</script>
+</body>
+</html>
