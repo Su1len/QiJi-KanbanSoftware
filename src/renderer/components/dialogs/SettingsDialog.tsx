@@ -4,6 +4,7 @@ import { api } from '../../utils/api-client';
 import { useTheme } from '../../context/ThemeContext';
 import { useMode } from '../../context/ModeContext';
 import AboutTab from '../settings/AboutTab';
+import RetroHistoryTab from '../settings/RetroHistoryTab';
 import dayjs from 'dayjs';
 
 const { RangePicker } = DatePicker;
@@ -219,6 +220,11 @@ const SettingsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           )}
         </div>
       ),
+    },
+    {
+      key: 'retrohistory',
+      label: '复盘记录',
+      children: <RetroHistoryTab />,
     },
     {
       key: 'about',

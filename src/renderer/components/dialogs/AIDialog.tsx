@@ -19,12 +19,14 @@ const AIDialog: React.FC<{
   const [tasks, setTasks] = useState<any[] | null>(null);
   const [taskIndex, setTaskIndex] = useState(0); // for sequential creation
   const [creating, setCreating] = useState(false);
+  const [followUpInput, setFollowUpInput] = useState('');
+  const [chatHistory, setChatHistory] = useState<any[]>([]);
 
-  const handleSend = async () => {
-    if (!input.trim()) return;
+  const doParse = async (text: string, history?: any[]) => {
+    if (!text.trim()) return;
     setLoading(true);
     try {
-      const result = await api.aiParse(input);
+      const result = await api.aiParse(text, history);
       if (result.tasks && result.tasks.length > 0) {
         setTasks(result.tasks);
       } else {
@@ -34,6 +36,21 @@ const AIDialog: React.FC<{
       message.error(e.message || 'AI 解析失败，请检查 API 密钥配置');
     }
     setLoading(false);
+  };
+
+  const handleSend = () => doParse(input);
+
+  const handleFollowUp = async () => {
+    if (!followUpInput.trim()) return;
+    const newHistory = [
+      ...chatHistory,
+      { role: 'user', content: input },
+      { role: 'assistant', content: JSON.stringify(tasks) },
+    ];
+    setChatHistory(newHistory);
+    setInput(followUpInput);
+    setFollowUpInput('');
+    await doParse(followUpInput, newHistory);
   };
 
   const startCreate = () => {
@@ -122,8 +139,32 @@ const AIDialog: React.FC<{
               {t.content && <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 4 }}>{t.content}</div>}
             </Card>
           ))}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
-            <Button onClick={() => setTasks(null)}>重新输入</Button>
+          {/* Follow-up section */}
+          <div style={{ marginTop: 12, padding: '10px 12px', background: 'var(--color-bg-hover)', borderRadius: 6 }}>
+            <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 8 }}>
+              还有哪些要素没想起来？你可以直接补充。（例如："注意预算不能超过五万"）
+            </div>
+            {chatHistory.length > 0 && (
+              <div style={{ marginBottom: 8, maxHeight: 120, overflow: 'auto' }}>
+                {chatHistory.filter((m: any) => m.role === 'user').map((m: any, i: number) => (
+                  <div key={i} style={{ fontSize: 12, marginBottom: 4 }}>
+                    <span style={{ color: 'var(--color-accent)' }}>💬 </span>
+                    <span style={{ color: 'var(--color-text-secondary)' }}>{m.content?.slice(0, 80)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Input size="small" value={followUpInput} onChange={e => setFollowUpInput(e.target.value)}
+                placeholder="补充信息（可选）" style={{ flex: 1 }}
+                onPressEnter={handleFollowUp} />
+              <Button size="small" onClick={handleFollowUp} loading={loading}>补充</Button>
+              <Button size="small" onClick={startCreate} type="primary">跳过追问</Button>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+            <Button onClick={() => { setTasks(null); setChatHistory([]); }}>重新输入</Button>
             <Button onClick={onClose}>取消</Button>
             <Button type="primary" icon={<PlusOutlined />} onClick={startCreate}>
               逐个创建（{tasks.length}个）

@@ -84,13 +84,15 @@ export const api = {
   getTasksByProject: (project: string) => request<any[]>('GET', `/api/main-tasks/by-project?project=${encodeURIComponent(project)}`),
   pinProject: (name: string) => request<any>('PUT', `/api/projects/${encodeURIComponent(name)}/pin`),
   unpinProject: (name: string) => request<any>('PUT', `/api/projects/${encodeURIComponent(name)}/unpin`),
+  completeProject: (name: string) => request<any>('PUT', `/api/projects/${encodeURIComponent(name)}/complete`),
+  reopenProject: (name: string) => request<any>('PUT', `/api/projects/${encodeURIComponent(name)}/reopen`),
 
   // Data Management
   deleteAllTasks: () => request<any>('POST', '/api/delete-all'),
 
   // AI
-  aiParse: (input: string) =>
-    request<{ tasks: any[] }>('POST', '/api/ai/parse', { input }),
+  aiParse: (input: string, history?: any[]) =>
+    request<{ tasks: any[] }>('POST', '/api/ai/parse', { input, history }),
 
   // Crypto / API Keys (handled locally)
   encryptApiKey: (apiKey: string, password: string) =>
@@ -124,6 +126,11 @@ export const api = {
   // Retrospectives
   saveRetrospective: (data: any) => request<any>('POST', '/api/retrospectives', data),
   getRetrospective: (mainTaskId: number) => request<any>('GET', `/api/retrospectives/${mainTaskId}`),
+  getRetrospectives: (project?: string) => {
+    const q = project ? `?project=${encodeURIComponent(project)}` : '';
+    return request<any[]>('GET', `/api/retrospectives${q}`);
+  },
+  deleteRetrospective: (id: number) => request<any>('DELETE', `/api/retrospectives/${id}`),
   getRetrospectivesByProject: (project: string) => request<any[]>('GET', `/api/retrospectives/by-project?project=${encodeURIComponent(project)}`),
   exportRetrospectiveMarkdown: (projectName: string, aiSummary?: boolean) => {
     return fetch('/api/retrospectives/export-markdown', {

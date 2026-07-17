@@ -26,10 +26,14 @@ import {
   getProjects,
   getTasksByProject,
   pinProject,
+  completeProject,
+  reopenProject,
   saveRetrospective,
   getRetrospective,
   getRetrospectivesByProject,
   getRetrospectivesExportData,
+  getAllRetrospectives,
+  deleteRetrospective,
   closeDatabase,
 } from './database';
 
@@ -167,6 +171,16 @@ app.put('/api/projects/:name/pin', (req, res) => {
 
 app.put('/api/projects/:name/unpin', (req, res) => {
   try { pinProject(req.params.name, 0); res.json({ success: true }); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/projects/:name/complete', (req, res) => {
+  try { completeProject(req.params.name); res.json({ success: true }); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/projects/:name/reopen', (req, res) => {
+  try { reopenProject(req.params.name); res.json({ success: true }); }
   catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
@@ -333,6 +347,20 @@ app.get('/api/retrospectives/:mainTaskId', (req, res) => {
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/api/retrospectives', (req, res) => {
+  try {
+    const project = req.query.project as string | undefined;
+    res.json(getAllRetrospectives(project || undefined));
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/retrospectives/:id', (req, res) => {
+  try {
+    deleteRetrospective(Number(req.params.id));
+    res.json({ success: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/retrospectives/by-project', (req, res) => {
   try {
     res.json(getRetrospectivesByProject(req.query.project as string));
@@ -419,12 +447,10 @@ app.post('/api/backup/upload', upload.single('file'), (req: any, res) => {
 
 app.post('/api/ai/parse', async (req, res) => {
   try {
-    const { input } = req.body;
+    const { input, history } = req.body;
     if (!input) return res.status(400).json({ error: '请输入任务描述' });
-    // Get API key from encrypted storage or settings
     let apiKey = '';
     if (fs.existsSync(KEY_FILE)) {
-      // User needs to provide password to decrypt; for now check settings
       const settingKey = getSetting('deepseek_api_key');
       if (settingKey) apiKey = settingKey;
     }
@@ -433,17 +459,22 @@ app.post('/api/ai/parse', async (req, res) => {
     const OpenAI = require('openai');
     const client = new OpenAI({ baseURL: 'https://api.deepseek.com', apiKey });
 
+    const messages: any[] = [
+      { role: 'system', content: `你是任务管理参谋。分析用户输入，提取任务信息，识别缺失关键字段。支持多任务拆分。若用户补充信息，合并到原有理解中重新解析。
+
+若用户一句话包含多个任务，返回JSON数组。
+单任务：{"name":"任务名","content":"内容","purpose":"目标","resources":"资源","duration":"工期","effect":"预期效果","hints":"注意要点","approach":"实现路径","relevants":"相关方","priority":0-10,"status":"进行中","sub_tasks":[{"name":"子任务"}]}
+多任务：[{...},{...}]
+只返回JSON，不要其他文字。` },
+    ];
+    if (history && Array.isArray(history)) {
+      messages.push(...history);
+    }
+    messages.push({ role: 'user', content: input });
+
     const response = await client.chat.completions.create({
       model: 'deepseek-chat',
-      messages: [
-        { role: 'system', content: `你是任务管理参谋。分析用户输入，提取任务信息，识别缺失关键字段。支持多任务拆分。
-
-若用户一句话包含多个任务，返回JSON数组，每个元素是一个任务对象。
-单任务返回对象：{"name":"任务名","content":"内容","purpose":"目标","resources":"资源","duration":"工期","effect":"预期效果","hints":"注意要点","approach":"实现路径","relevants":"相关方","priority":0-10,"status":"进行中","sub_tasks":[{"name":"子任务"}]}
-多任务返回数组：[{...},{...}]
-若信息不足，根据上下文合理推断（如"提交周报"→目标=完成周报提交）。只返回JSON，不要其他文字。` },
-        { role: 'user', content: input },
-      ],
+      messages,
       temperature: 0.3, max_tokens: 2000,
     });
 

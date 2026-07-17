@@ -547,6 +547,25 @@ export function getRetrospectivesExportData(projectName: string) {
   return rows;
 }
 
+export function getAllRetrospectives(projectName?: string) {
+  if (projectName) {
+    return db.prepare(`
+      SELECT r.*, m.name as task_name, m.letter, m.project_name
+      FROM retrospectives r JOIN main_tasks m ON r.main_task_id = m.id
+      WHERE m.project_name = ? ORDER BY r.created_at DESC
+    `).all(projectName);
+  }
+  return db.prepare(`
+    SELECT r.*, m.name as task_name, m.letter, m.project_name
+    FROM retrospectives r JOIN main_tasks m ON r.main_task_id = m.id
+    ORDER BY r.created_at DESC
+  `).all();
+}
+
+export function deleteRetrospective(id: number): void {
+  db.prepare('DELETE FROM retrospectives WHERE id = ?').run(id);
+}
+
 // ---- Projects ----
 
 export function getProjects() {
@@ -571,6 +590,18 @@ export function getTasksByProject(projectName: string) {
 
 export function pinProject(projectName: string, pinned: number): void {
   db.prepare('UPDATE main_tasks SET project_pinned = ? WHERE project_name = ?').run(pinned, projectName);
+}
+
+export function completeProject(projectName: string): void {
+  db.prepare(
+    "UPDATE main_tasks SET status = '已取消', updated_at = ? WHERE project_name = ? AND status = '进行中'"
+  ).run(now(), projectName);
+}
+
+export function reopenProject(projectName: string): void {
+  db.prepare(
+    "UPDATE main_tasks SET status = '进行中', updated_at = ? WHERE project_name = ? AND status IN ('已取消', '暂搁置')"
+  ).run(now(), projectName);
 }
 
 export function closeDatabase(): void {

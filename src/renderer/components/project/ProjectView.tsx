@@ -42,6 +42,21 @@ const ProjectView: React.FC<{
 
   useEffect(() => { loadProjects(); }, []);
 
+  const isProjectCompleted = (tasks: MainTask[]) =>
+    tasks.length > 0 && tasks.every(t => t.status === '已完成' || t.status === '已取消');
+
+  const handleComplete = async (name: string) => {
+    await api.completeProject(name);
+    loadProjects();
+  };
+  const handleReopen = async (name: string) => {
+    await api.reopenProject(name);
+    loadProjects();
+  };
+  const handleExportProjectRetro = (name: string) => {
+    api.exportRetrospectiveMarkdown(name);
+  };
+
   const handlePin = async (name: string, pin: boolean) => {
     if (pin) {
       await api.pinProject(name);
@@ -65,29 +80,41 @@ const ProjectView: React.FC<{
     });
   };
 
-  const items = projects.map(name => {
+  const subColumns = [
+    { title: '名称', dataIndex: 'name', key: 'name' },
+    { title: '状态', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={STATUS_COLORS[s] || 'default'}>{s}</Tag> },
+  ];
+
+  const buildItem = (name: string, isCompleted: boolean) => {
     const tasks = projectTasks[name] || [];
     const total = tasks.length;
     const done = tasks.filter(t => t.status === '已完成').length;
     const isPinned = pinnedProjects.has(name);
 
-    const subColumns = [
-      { title: '名称', dataIndex: 'name', key: 'name' },
-      { title: '状态', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={STATUS_COLORS[s] || 'default'}>{s}</Tag> },
-    ];
-
     return {
       key: name,
       label: (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Button type="text" size="small"
-            icon={isPinned ? <PushpinFilled style={{ color: '#faad14' }} /> : <PushpinOutlined />}
-            onClick={(e) => { e.stopPropagation(); handlePin(name, !isPinned); }}
-          />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {!isCompleted && (
+            <Button type="text" size="small"
+              icon={isPinned ? <PushpinFilled style={{ color: '#faad14' }} /> : <PushpinOutlined />}
+              onClick={(e) => { e.stopPropagation(); handlePin(name, !isPinned); }}
+            />
+          )}
           <span style={{ fontWeight: 600 }}>{name}</span>
           <Progress percent={total > 0 ? Math.round((done / total) * 100) : 0} size="small"
-            style={{ width: 120, margin: 0 }}
-            format={() => `${done}/${total}`} />
+            style={{ width: 100, margin: 0 }} format={() => `${done}/${total}`} />
+          <div style={{ flex: 1 }} />
+          {isCompleted ? (
+            <Button size="small" onClick={(e) => { e.stopPropagation(); handleReopen(name); }}>重新打开</Button>
+          ) : (
+            <Button size="small" onClick={(e) => { e.stopPropagation(); handleComplete(name); }}>标记完成</Button>
+          )}
+          {isCompleted && (
+            <Button size="small" type="primary" onClick={(e) => { e.stopPropagation(); handleExportProjectRetro(name); }}>
+              导出复盘
+            </Button>
+          )}
         </div>
       ),
       children: (
@@ -99,34 +126,23 @@ const ProjectView: React.FC<{
             { title: '状态', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={STATUS_COLORS[s] || 'default'}>{s}</Tag> },
             { title: '工期', dataIndex: 'duration', key: 'duration', width: 80 },
           ]}
-          size="small"
-          pagination={false}
+          size="small" pagination={false}
           expandable={{
             expandedRowRender: (record: any) => {
               const subs = record.sub_tasks || [];
               if (subs.length === 0) return <span style={{ color: 'var(--color-text-muted)', paddingLeft: 24 }}>无子任务</span>;
-              return (
-                <Table
-                  dataSource={subs.map((s: SubTask) => ({ key: `sub-${s.id}`, ...s }))}
-                  columns={subColumns}
-                  size="small"
-                  pagination={false}
-                  showHeader={false}
-                  style={{ marginLeft: 24 }}
-                />
-              );
+              return <Table dataSource={subs.map((s: SubTask) => ({ key: `sub-${s.id}`, ...s }))} columns={subColumns} size="small" pagination={false} showHeader={false} style={{ marginLeft: 24 }} />;
             },
           }}
-          onRow={(r) => ({
-            onClick: () => onSelectTask(r.id),
-            onDoubleClick: () => onEditTask(r),
-            style: { cursor: 'pointer' },
-          })}
+          onRow={(r) => ({ onClick: () => onSelectTask(r.id), onDoubleClick: () => onEditTask(r), style: { cursor: 'pointer' } })}
           style={{ margin: '-8px 0' }}
         />
       ),
     };
-  });
+  };
+
+  const activeProjects = projects.filter(name => !isProjectCompleted(projectTasks[name] || []));
+  const completedProjects = projects.filter(name => isProjectCompleted(projectTasks[name] || []));
 
   return (
     <div style={{ padding: '8px 0', overflow: 'auto', height: '100%' }}>
@@ -135,7 +151,17 @@ const ProjectView: React.FC<{
           暂无项目。在任务表单中填写"项目名称"，任务即会归入对应项目。
         </div>
       ) : (
-        <Collapse items={items} size="small" />
+        <>
+          <Collapse items={activeProjects.map(n => buildItem(n, false))} size="small" />
+          {completedProjects.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8, color: 'var(--color-text-secondary)' }}>
+                已完成项目
+              </div>
+              <Collapse items={completedProjects.map(n => buildItem(n, true))} size="small" style={{ opacity: 0.85 }} />
+            </div>
+          )}
+        </>
       )}
     </div>
   );

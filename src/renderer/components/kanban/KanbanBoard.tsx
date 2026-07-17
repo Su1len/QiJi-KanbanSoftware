@@ -31,7 +31,6 @@ const KanbanBoard: React.FC<{
   const [quotes, setQuotes] = React.useState<{ quote: string; author: string }[]>([]);
   const [quote, setQuote] = React.useState<{ quote: string; author: string } | null>(null);
   const [tip, setTip] = React.useState('');
-
   const TIPS = [
     '试试用"项目"视图来组织你的大型战役',
     'AI助理可以帮你从一段话里自动生成任务',
@@ -46,7 +45,9 @@ const KanbanBoard: React.FC<{
     fetch('/themes/quotes.json')
       .then(r => r.json())
       .then((q: any[]) => { setQuotes(q); })
-      .catch(() => {});
+      .catch(() => {
+        setQuotes([{ quote: '教育是微光吸引微光、微光照亮微光、微光点燃微光、彼此温暖，彼此成全，同向同行，一起发光的过程。', author: '孙海鸥老师' }]);
+      });
   }, []);
 
   React.useEffect(() => {

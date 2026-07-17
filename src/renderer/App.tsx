@@ -139,8 +139,11 @@ const AppInner: React.FC = () => {
       if (task) {
         setSelectedTask(task);
         if (task.sub_tasks && task.sub_tasks.length > 0) {
-          setSelectedSubTask(task.sub_tasks[0]);
-          setCurrentSubIndex(0);
+          const unfinished = task.sub_tasks.filter((s: SubTask) => !['已完成', '已取消'].includes(s.status));
+          if (unfinished.length > 0) {
+            setSelectedSubTask(unfinished[0]);
+            setCurrentSubIndex(task.sub_tasks.indexOf(unfinished[0]));
+          } else { setSelectedSubTask(null); setCurrentSubIndex(-1); }
         } else { setSelectedSubTask(null); setCurrentSubIndex(-1); }
       }
     } catch (e) { console.error(e); }
