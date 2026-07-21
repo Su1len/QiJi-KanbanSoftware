@@ -356,16 +356,21 @@ export function cancelSubTask(id: number): void {
   if (st) updateMainTaskStatus(st.main_task_id);
 }
 
+function deriveMainTaskStatus(subTasks: any[]): string | null {
+  if (!subTasks || subTasks.length === 0) return null;
+  if (subTasks.some(s => s.status === '进行中')) return '进行中';
+  if (subTasks.some(s => s.status === '暂搁置')) return '暂搁置';
+  if (subTasks.every(s => s.status === '已取消')) return '已取消';
+  if (subTasks.every(s => s.status === '已完成' || s.status === '已取消')) return '已完成';
+  return '进行中';
+}
+
 function updateMainTaskStatus(mainTaskId: number): void {
   const subs = db.prepare('SELECT status FROM sub_tasks WHERE main_task_id = ?').all(mainTaskId) as any[];
-  if (subs.length === 0) return;
-  const allDone = subs.every((s: any) => s.status === '已完成' || s.status === '已取消');
-  const allCancelled = subs.every((s: any) => s.status === '已取消');
-  let newStatus: string;
-  if (allCancelled) newStatus = '已取消';
-  else if (allDone) newStatus = '已完成';
-  else newStatus = '进行中';
-  db.prepare('UPDATE main_tasks SET status = ?, updated_at = ? WHERE id = ?').run(newStatus, now(), mainTaskId);
+  const derived = deriveMainTaskStatus(subs);
+  if (derived) {
+    db.prepare('UPDATE main_tasks SET status = ?, updated_at = ? WHERE id = ?').run(derived, now(), mainTaskId);
+  }
 }
 
 // ---- Progress Reports ----
@@ -602,6 +607,65 @@ export function reopenProject(projectName: string): void {
   db.prepare(
     "UPDATE main_tasks SET status = '进行中', updated_at = ? WHERE project_name = ? AND status IN ('已取消', '暂搁置')"
   ).run(now(), projectName);
+}
+
+export function moveTask(id: number, newStatus: string): void {
+  const oldTask = getMainTask(id) as any;
+  if (!oldTask) return;
+  const oldStatus = oldTask.status;
+  if (oldStatus === newStatus) return;
+
+  // Full sub-task sync rules (12 entries covering all transitions)
+  const syncRules: Record<string, { from: string[]; to: string }> = {
+    '进行中→已完成': { from: ['进行中', '暂搁置'], to: '已完成' },
+    '进行中→暂搁置': { from: ['进行中'], to: '暂搁置' },
+    '进行中→已取消': { from: ['进行中', '暂搁置', '已完成', '已取消'], to: '已取消' },
+    '暂搁置→已完成': { from: ['暂搁置'], to: '已完成' },
+    '暂搁置→已取消': { from: ['暂搁置', '进行中', '已完成', '已取消'], to: '已取消' },
+    '暂搁置→进行中': { from: ['暂搁置'], to: '进行中' },
+    '已取消→已完成': { from: ['已取消', '进行中', '暂搁置', '已完成'], to: '已完成' },
+    '已取消→进行中': { from: ['已取消', '已完成', '暂搁置'], to: '进行中' },
+    '已取消→暂搁置': { from: ['已取消', '已完成', '进行中'], to: '暂搁置' },
+    '已完成→已取消': { from: ['已完成', '进行中', '暂搁置', '已取消'], to: '已取消' },
+    '已完成→暂搁置': { from: ['已完成', '进行中', '已取消'], to: '暂搁置' },
+    '已完成→进行中': { from: ['已完成', '暂搁置', '已取消'], to: '进行中' },
+  };
+
+  // Step 1: Sync sub-tasks
+  const ruleKey = `${oldStatus}→${newStatus}`;
+  const rule = syncRules[ruleKey];
+  const subs = db.prepare('SELECT * FROM sub_tasks WHERE main_task_id = ?').all(id) as any[];
+  const hasSubs = subs.length > 0;
+
+  if (hasSubs && rule) {
+    rule.from.forEach(fromStatus => {
+      db.prepare('UPDATE sub_tasks SET status = ?, updated_at = ? WHERE main_task_id = ? AND status = ?')
+        .run(rule.to, now(), id, fromStatus);
+    });
+    // Step 2: Derive final main task status from sub-tasks
+    const refreshed = db.prepare('SELECT status FROM sub_tasks WHERE main_task_id = ?').all(id) as any[];
+    const derived = deriveMainTaskStatus(refreshed);
+    if (derived) {
+      db.prepare('UPDATE main_tasks SET status = ?, updated_at = ? WHERE id = ?').run(derived, now(), id);
+    }
+  } else if (!hasSubs) {
+    // No sub-tasks: directly update main task status
+    db.prepare('UPDATE main_tasks SET status = ?, updated_at = ? WHERE id = ?').run(newStatus, now(), id);
+  }
+}
+
+export function deleteProject(name: string): void {
+  db.transaction(() => {
+    db.prepare('DELETE FROM progress_reports WHERE main_task_id IN (SELECT id FROM main_tasks WHERE project_name = ?)').run(name);
+    db.prepare('DELETE FROM retrospectives WHERE main_task_id IN (SELECT id FROM main_tasks WHERE project_name = ?)').run(name);
+    db.prepare('DELETE FROM sub_tasks WHERE main_task_id IN (SELECT id FROM main_tasks WHERE project_name = ?)').run(name);
+    db.prepare('DELETE FROM main_tasks WHERE project_name = ?').run(name);
+  })();
+}
+
+export function countTasksInProject(projectName: string): number {
+  const row = db.prepare('SELECT COUNT(*) as cnt FROM main_tasks WHERE project_name = ?').get(projectName) as any;
+  return row ? row.cnt : 0;
 }
 
 export function closeDatabase(): void {

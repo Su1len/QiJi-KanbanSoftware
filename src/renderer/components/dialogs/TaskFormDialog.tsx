@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Form, Input, Select, Button, Row, Col, InputNumber, Tooltip, AutoComplete } from 'antd';
+import { Modal, Form, Input, Select, Button, Row, Col, InputNumber, Tooltip, AutoComplete, message } from 'antd';
 import { PlusOutlined, DeleteOutlined, QuestionCircleOutlined, DownOutlined, RightOutlined } from '@ant-design/icons';
 import type { MainTask } from '../../App';
 import type { AppMode } from '../../context/ModeContext';
 import { buildChainGraph } from '../../utils/graph-utils';
+import { api } from '../../utils/api-client';
 
 const { TextArea } = Input;
 
@@ -101,14 +102,21 @@ const TaskFormDialog: React.FC<{
     }
   }, [task, form, initialData]);
 
-  const handleSubmit = () => {
-    form.validateFields().then(values => {
-      onSubmit({
-        ...values,
-        sub_tasks: subTasks.filter(s => s.name.trim()),
-        task_date: selectedDate,
-      });
-    }).catch(() => {});
+  const handleSubmit = async () => {
+    const values = await form.validateFields().catch(() => null);
+    if (!values) return;
+    // Card limit: max 50 tasks per project
+    if (mode === 'full' && values.project_name) {
+      try {
+        const cnt = await api.countTasksInProject(values.project_name);
+        if (cnt >= 50) { message.warning('此项目内的主任务数量已达上限（50个），请考虑调整任务或新建项目'); return; }
+      } catch {}
+    }
+    onSubmit({
+      ...values,
+      sub_tasks: subTasks.filter(s => s.name.trim()),
+      task_date: selectedDate,
+    });
   };
 
   const addSubTask = () => setSubTasks([...subTasks, { name: '', nextIndex: null }]);

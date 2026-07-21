@@ -97,7 +97,7 @@ const AppInner: React.FC = () => {
     setLoading(false);
   }, [selectedDate, searchKeyword]);
 
-  useEffect(() => { loadTasks(); }, [loadTasks]);
+  useEffect(() => { if (viewMode === 'date') loadTasks(); }, [loadTasks, viewMode]);
 
   // Daily summary check
   const summaryTriggeredRef = React.useRef<string | null>(null);
@@ -171,10 +171,16 @@ const AppInner: React.FC = () => {
     const subs = task.sub_tasks || [];
     const unfinished = subs.filter(s => !['已完成', '已取消'].includes(s.status));
     if (unfinished.length === 0) { setSelectedSubTask(null); setCurrentSubIndex(-1); return; }
-    // If a specific next target is given, jump to it
+    // If a specific next target is given, jump to it (skip completed/cancelled)
     if (nextSubTaskId) {
-      const target = unfinished.find(s => s.id === nextSubTaskId);
+      let target: SubTask | null | undefined = unfinished.find(s => s.id === nextSubTaskId);
+      while (target && ['已完成', '已取消'].includes(target.status)) {
+        const nextTarget = subs.find(s => s.id === target!.next_sub_task_id);
+        if (!nextTarget) { target = null; break; }
+        target = nextTarget;
+      }
       if (target) { setSelectedSubTask(target); setCurrentSubIndex(subs.indexOf(target)); return; }
+      // Chain exhausted
     }
     // Otherwise cycle to next unfinished after current position
     const curIdx = unfinished.findIndex(s => s.id === curSubId);
@@ -228,7 +234,7 @@ const AppInner: React.FC = () => {
       setShowTaskForm(false); setEditingTask(null); loadTasks();
     } catch (e) { console.error(e); }
   };
-  const handleAIResult = (data: any) => { setShowAI(false); setEditingTask(null); };
+  const handleAIResult = (data: any) => { setShowAI(false); setEditingTask(null); loadTasks(); };
 
   // Dynamic Ant Design theme
   const antdTheme = {

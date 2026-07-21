@@ -86,6 +86,9 @@ export const api = {
   unpinProject: (name: string) => request<any>('PUT', `/api/projects/${encodeURIComponent(name)}/unpin`),
   completeProject: (name: string) => request<any>('PUT', `/api/projects/${encodeURIComponent(name)}/complete`),
   reopenProject: (name: string) => request<any>('PUT', `/api/projects/${encodeURIComponent(name)}/reopen`),
+  deleteProject: (name: string) => request<any>('DELETE', `/api/projects/${encodeURIComponent(name)}`),
+  countTasksInProject: (name: string) => request<{ count: number }>('GET', `/api/projects/${encodeURIComponent(name)}/count`).then(r => r.count),
+  moveTask: (id: number, status: string) => request<any>('PUT', `/api/main-tasks/${id}/move`, { status }),
 
   // Data Management
   deleteAllTasks: () => request<any>('POST', '/api/delete-all'),

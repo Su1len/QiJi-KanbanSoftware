@@ -1,167 +1,170 @@
 import React, { useState, useEffect } from 'react';
-import { Collapse, Table, Tag, Button, message, Progress } from 'antd';
-import { PushpinOutlined, PushpinFilled } from '@ant-design/icons';
+import { Select, Button, Popconfirm, message, Progress } from 'antd';
+import { PushpinOutlined, PushpinFilled, DeleteOutlined, DownloadOutlined, CheckOutlined, UndoOutlined } from '@ant-design/icons';
+import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, pointerWithin, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import { api } from '../../utils/api-client';
-import type { MainTask, SubTask } from '../../App';
-
-const STATUS_COLORS: Record<string, string> = {
-  '进行中': 'blue', '暂搁置': 'orange', '已取消': 'default', '已完成': 'green',
-};
+import KanbanColumn from './KanbanColumn';
+import type { MainTask } from '../../App';
 
 const ProjectView: React.FC<{
   onSelectTask: (id: number) => void;
   onEditTask: (task: MainTask) => void;
 }> = ({ onSelectTask, onEditTask }) => {
   const [projects, setProjects] = useState<string[]>([]);
-  const [projectTasks, setProjectTasks] = useState<Record<string, MainTask[]>>({});
-  const [pinnedProjects, setPinnedProjects] = useState<Set<string>>(new Set());
+  const [selectedProject, setSelectedProject] = useState<string | null>(null);
+  const [tasks, setTasks] = useState<MainTask[]>([]);
+  const [pinned, setPinned] = useState(false);
+  const [completed, setCompleted] = useState(false);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
-  const loadProjects = async () => {
+  useEffect(() => { api.getProjects().then(p => setProjects(p || [])); }, []);
+
+  const loadTasks = async (name: string) => {
     setLoading(true);
-    const names = await api.getProjects();
-    setProjects(names);
-    const tasksMap: Record<string, MainTask[]> = {};
-    const pinnedSet = new Set<string>();
-    for (const name of names) {
-      const tasks = await api.getTasksByProject(name);
-      // Also load sub-tasks for each task
-      for (const t of tasks) {
-        try {
-          const full = await api.getMainTaskWithSubs(t.id);
-          if (full) t.sub_tasks = full.sub_tasks || [];
-        } catch { t.sub_tasks = []; }
-      }
-      tasksMap[name] = tasks;
-      if (tasks.some(t => (t as any).project_pinned === 1)) pinnedSet.add(name);
+    setSelectedProject(name);
+    const ts = await api.getTasksByProject(name);
+    // Load sub-tasks for each task
+    for (const t of ts) {
+      try { const full = await api.getMainTaskWithSubs(t.id); if (full) t.sub_tasks = full.sub_tasks || []; }
+      catch { t.sub_tasks = []; }
     }
-    setProjectTasks(tasksMap);
-    setPinnedProjects(pinnedSet);
+    setTasks(ts);
+    setPinned(ts.some(t => (t as any).project_pinned === 1));
+    const allDone = ts.length > 0 && ts.every(t => t.status === '已完成' || t.status === '已取消');
+    setCompleted(allDone);
     setLoading(false);
   };
 
-  useEffect(() => { loadProjects(); }, []);
-
-  const isProjectCompleted = (tasks: MainTask[]) =>
-    tasks.length > 0 && tasks.every(t => t.status === '已完成' || t.status === '已取消');
-
-  const handleComplete = async (name: string) => {
-    await api.completeProject(name);
-    loadProjects();
-  };
-  const handleReopen = async (name: string) => {
-    await api.reopenProject(name);
-    loadProjects();
-  };
-  const handleExportProjectRetro = (name: string) => {
-    api.exportRetrospectiveMarkdown(name);
+  const handleDragEnd = async (e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over) return;
+    const colId = String(over.id);
+    const newStatus = colId.replace('col-', '');
+    const id = Number(String(active.id).replace('task-', ''));
+    const task = tasks.find(t => t.id === id);
+    if (!task || task.status === newStatus) return;
+    // Optimistic update
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, status: newStatus } : t));
+    await api.moveTask(id, newStatus);
+    // Refresh
+    if (selectedProject) loadTasks(selectedProject);
   };
 
-  const handlePin = async (name: string, pin: boolean) => {
-    if (pin) {
-      await api.pinProject(name);
-      setPinnedProjects(prev => new Set(prev).add(name));
-    } else {
-      await api.unpinProject(name);
-      setPinnedProjects(prev => { const s = new Set(prev); s.delete(name); return s; });
-    }
-    // Re-sort
-    setProjects(prev => {
-      const sorted = [...prev];
-      sorted.sort((a, b) => {
-        const aPin = pin && a === name ? 1 : pinnedProjects.has(a) && a !== name ? 1 : 0;
-        const bPin = pin && b === name ? 1 : pinnedProjects.has(b) && b !== name ? 1 : 0;
-        const pa = aPin || (pin && a === name ? 1 : 0) || (pinnedProjects.has(a) ? 1 : 0);
-        const pb = bPin || (pin && b === name ? 1 : 0) || (pinnedProjects.has(b) ? 1 : 0);
-        if (pa !== pb) return pb - pa;
-        return 0;
-      });
-      return sorted;
-    });
+  const handlePin = async () => {
+    if (!selectedProject) return;
+    if (pinned) { await api.unpinProject(selectedProject); } else { await api.pinProject(selectedProject); }
+    setPinned(!pinned);
   };
 
-  const subColumns = [
-    { title: '名称', dataIndex: 'name', key: 'name' },
-    { title: '状态', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={STATUS_COLORS[s] || 'default'}>{s}</Tag> },
+  const handleComplete = async () => {
+    if (!selectedProject) return;
+    await api.completeProject(selectedProject);
+    loadTasks(selectedProject);
+  };
+  const handleReopen = async () => {
+    if (!selectedProject) return;
+    await api.reopenProject(selectedProject);
+    loadTasks(selectedProject);
+  };
+  const handleDelete = async () => {
+    if (!selectedProject) return;
+    await api.deleteProject(selectedProject);
+    message.success('项目已删除');
+    setSelectedProject(null);
+    setTasks([]);
+    api.getProjects().then(p => setProjects(p || []));
+  };
+
+  const columns = [
+    { status: '进行中', width: '37.5%' },
+    { status: '已完成', width: '37.5%' },
   ];
 
-  const buildItem = (name: string, isCompleted: boolean) => {
-    const tasks = projectTasks[name] || [];
-    const total = tasks.length;
-    const done = tasks.filter(t => t.status === '已完成').length;
-    const isPinned = pinnedProjects.has(name);
-
-    return {
-      key: name,
-      label: (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {!isCompleted && (
-            <Button type="text" size="small"
-              icon={isPinned ? <PushpinFilled style={{ color: '#faad14' }} /> : <PushpinOutlined />}
-              onClick={(e) => { e.stopPropagation(); handlePin(name, !isPinned); }}
-            />
-          )}
-          <span style={{ fontWeight: 600 }}>{name}</span>
-          <Progress percent={total > 0 ? Math.round((done / total) * 100) : 0} size="small"
-            style={{ width: 100, margin: 0 }} format={() => `${done}/${total}`} />
-          <div style={{ flex: 1 }} />
-          {isCompleted ? (
-            <Button size="small" onClick={(e) => { e.stopPropagation(); handleReopen(name); }}>重新打开</Button>
-          ) : (
-            <Button size="small" onClick={(e) => { e.stopPropagation(); handleComplete(name); }}>标记完成</Button>
-          )}
-          {isCompleted && (
-            <Button size="small" type="primary" onClick={(e) => { e.stopPropagation(); handleExportProjectRetro(name); }}>
-              导出复盘
-            </Button>
-          )}
-        </div>
-      ),
-      children: (
-        <Table
-          dataSource={tasks.map(t => ({ key: `mt-${t.id}`, ...t }))}
-          columns={[
-            { title: '编号', dataIndex: 'letter', key: 'letter', width: 60 },
-            { title: '任务名称', dataIndex: 'name', key: 'name' },
-            { title: '状态', dataIndex: 'status', key: 'status', render: (s: string) => <Tag color={STATUS_COLORS[s] || 'default'}>{s}</Tag> },
-            { title: '工期', dataIndex: 'duration', key: 'duration', width: 80 },
-          ]}
-          size="small" pagination={false}
-          expandable={{
-            expandedRowRender: (record: any) => {
-              const subs = record.sub_tasks || [];
-              if (subs.length === 0) return <span style={{ color: 'var(--color-text-muted)', paddingLeft: 24 }}>无子任务</span>;
-              return <Table dataSource={subs.map((s: SubTask) => ({ key: `sub-${s.id}`, ...s }))} columns={subColumns} size="small" pagination={false} showHeader={false} style={{ marginLeft: 24 }} />;
-            },
-          }}
-          onRow={(r) => ({ onClick: () => onSelectTask(r.id), onDoubleClick: () => onEditTask(r), style: { cursor: 'pointer' } })}
-          style={{ margin: '-8px 0' }}
-        />
-      ),
-    };
-  };
-
-  const activeProjects = projects.filter(name => !isProjectCompleted(projectTasks[name] || []));
-  const completedProjects = projects.filter(name => isProjectCompleted(projectTasks[name] || []));
-
   return (
-    <div style={{ padding: '8px 0', overflow: 'auto', height: '100%' }}>
-      {projects.length === 0 && !loading ? (
+    <div style={{ padding: '8px 0', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {/* Top bar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexShrink: 0 }}>
+        <Select
+          style={{ width: 240 }}
+          placeholder="选择项目"
+          value={selectedProject}
+          onChange={v => { if (v) loadTasks(v); }}
+          options={projects.map(p => ({ value: p, label: p }))}
+        />
+        {selectedProject && (
+          <>
+            <Button size="small" icon={pinned ? <PushpinFilled style={{ color: '#faad14' }} /> : <PushpinOutlined />}
+              onClick={handlePin} />
+            {completed ? (
+              <Button size="small" icon={<UndoOutlined />} onClick={handleReopen}>重新打开</Button>
+            ) : (
+              <Button size="small" icon={<CheckOutlined />} onClick={handleComplete}>标记完成</Button>
+            )}
+            <Button size="small" icon={<DownloadOutlined />}
+              onClick={() => api.exportRetrospectiveMarkdown(selectedProject)}>导出复盘</Button>
+            <Popconfirm title={`确定删除项目"${selectedProject}"？此操作不可恢复。`} onConfirm={handleDelete}>
+              <Button size="small" danger icon={<DeleteOutlined />} />
+            </Popconfirm>
+            <Progress size="small" style={{ width: 100, margin: '0 0 0 auto' }}
+              percent={tasks.length > 0 ? Math.round(tasks.filter(t => t.status === '已完成').length / tasks.length * 100) : 0}
+              format={() => `${tasks.filter(t => t.status === '已完成').length}/${tasks.length}`} />
+          </>
+        )}
+      </div>
+
+      {/* Kanban board */}
+      {loading ? (
+        <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', padding: 40 }}>加载中...</div>
+      ) : !selectedProject ? (
         <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', padding: 40 }}>
-          暂无项目。在任务表单中填写"项目名称"，任务即会归入对应项目。
+          选择一个项目以查看看板
         </div>
       ) : (
-        <>
-          <Collapse items={activeProjects.map(n => buildItem(n, false))} size="small" />
-          {completedProjects.length > 0 && (
-            <div style={{ marginTop: 16 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8, color: 'var(--color-text-secondary)' }}>
-                已完成项目
+        <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>
+          <DndContext sensors={sensors} collisionDetection={pointerWithin}
+            onDragStart={(e: DragStartEvent) => setActiveId(String(e.active.id))}
+            onDragEnd={(e: DragEndEvent) => { handleDragEnd(e); setActiveId(null); }}
+            onDragCancel={() => setActiveId(null)}>
+            <div style={{ display: 'flex', gap: 8, minHeight: '100%' }}>
+              {/* Left: 暂搁置 + 已取消 stacked */}
+              <div style={{ width: '25%', display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
+                <KanbanColumn status="暂搁置" width="100%"
+                  tasks={tasks.filter(t => t.status === '暂搁置')}
+                  selectedTaskId={selectedId} onSelect={id => { setSelectedId(id); onSelectTask(id); }}
+                  onEdit={onEditTask} />
+                <KanbanColumn status="已取消" width="100%"
+                  tasks={tasks.filter(t => t.status === '已取消')}
+                  selectedTaskId={selectedId} onSelect={id => { setSelectedId(id); onSelectTask(id); }}
+                  onEdit={onEditTask} />
               </div>
-              <Collapse items={completedProjects.map(n => buildItem(n, true))} size="small" style={{ opacity: 0.85 }} />
+              {columns.map(c => (
+                <KanbanColumn key={c.status} status={c.status} width={c.width}
+                  tasks={tasks.filter(t => t.status === c.status)}
+                  selectedTaskId={selectedId} onSelect={id => { setSelectedId(id); onSelectTask(id); }}
+                  onEdit={onEditTask} />
+              ))}
             </div>
-          )}
-        </>
+            <DragOverlay dropAnimation={null}>
+              {activeId ? (
+                <div style={{
+                  padding: '10px 12px', background: 'var(--color-bg-card)',
+                  borderRadius: 6, border: '2px solid var(--color-accent)',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.3)', cursor: 'grabbing',
+                  opacity: 0.95, minWidth: 200,
+                }}>
+                  {(() => {
+                    const id = Number(activeId.replace('task-', ''));
+                    const t = tasks.find(x => x.id === id);
+                    return t ? <span style={{ fontWeight: 600, fontSize: 13 }}>{t.letter}. {t.name}</span> : null;
+                  })()}
+                </div>
+              ) : null}
+            </DragOverlay>
+          </DndContext>
+        </div>
       )}
     </div>
   );

@@ -35,6 +35,9 @@ import {
   getAllRetrospectives,
   deleteRetrospective,
   closeDatabase,
+  moveTask,
+  deleteProject,
+  countTasksInProject,
 } from './database';
 
 const app = express();
@@ -91,8 +94,21 @@ app.get('/api/main-tasks/:id/with-subs', (req, res) => {
 
 app.put('/api/main-tasks/:id', (req, res) => {
   try {
-    const task = updateMainTask(Number(req.params.id), req.body);
-    res.json(task);
+    const id = Number(req.params.id);
+    // If status is being changed, use moveTask for proper sub-task sync
+    if (req.body.status !== undefined) {
+      moveTask(id, req.body.status);
+      // Then apply remaining non-status fields via updateMainTask
+      const { status, ...rest } = req.body;
+      if (Object.keys(rest).length > 0) {
+        updateMainTask(id, rest);
+      }
+      const task = getMainTask(id);
+      res.json(task);
+    } else {
+      const task = updateMainTask(id, req.body);
+      res.json(task);
+    }
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
@@ -182,6 +198,23 @@ app.put('/api/projects/:name/complete', (req, res) => {
 app.put('/api/projects/:name/reopen', (req, res) => {
   try { reopenProject(req.params.name); res.json({ success: true }); }
   catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.delete('/api/projects/:name', (req, res) => {
+  try { deleteProject(req.params.name); res.json({ success: true }); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/projects/:name/count', (req, res) => {
+  try { res.json({ count: countTasksInProject(req.params.name) }); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/main-tasks/:id/move', (req, res) => {
+  try {
+    moveTask(Number(req.params.id), req.body.status);
+    res.json({ success: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // ==================== SubTask ordering ====================
