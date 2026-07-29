@@ -197,28 +197,38 @@ const AppInner: React.FC = () => {
   const nextSubTask = useCallback(() => { nextUnfinishedSub(); }, [nextUnfinishedSub]);
 
   const handleCompleteSubTask = async () => {
-    if (!selectedSubTask || !selectedTask) return;
+    if (!selectedTask) return;
     try {
-      const nextId = selectedSubTask.next_sub_task_id;
-      await api.completeSubTask(selectedSubTask.id);
-      // Re-fetch selected task to get fresh sub-task statuses before navigating
-      const refreshed = await api.getMainTaskWithSubs(selectedTask.id);
-      if (refreshed) {
-        setSelectedTask(refreshed);
-        navigateNext(refreshed, selectedSubTask.id, nextId);
+      if (!selectedTask.sub_tasks || selectedTask.sub_tasks.length === 0) {
+        // No sub-tasks: directly complete the main task
+        await api.updateMainTask(selectedTask.id, { status: '已完成' });
+        setSelectedTask(prev => prev ? { ...prev, status: '已完成' } : null);
+      } else if (selectedSubTask) {
+        const nextId = selectedSubTask.next_sub_task_id;
+        await api.completeSubTask(selectedSubTask.id);
+        const refreshed = await api.getMainTaskWithSubs(selectedTask.id);
+        if (refreshed) {
+          setSelectedTask(refreshed);
+          navigateNext(refreshed, selectedSubTask.id, nextId);
+        }
       }
       await loadTasks();
     } catch (e) { console.error(e); }
   };
   const handleCancelSubTask = async () => {
-    if (!selectedSubTask || !selectedTask) return;
+    if (!selectedTask) return;
     try {
-      const nextId = selectedSubTask.next_sub_task_id;
-      await api.cancelSubTask(selectedSubTask.id);
-      const refreshed = await api.getMainTaskWithSubs(selectedTask.id);
-      if (refreshed) {
-        setSelectedTask(refreshed);
-        navigateNext(refreshed, selectedSubTask.id, nextId);
+      if (!selectedTask.sub_tasks || selectedTask.sub_tasks.length === 0) {
+        await api.updateMainTask(selectedTask.id, { status: '已取消' });
+        setSelectedTask(prev => prev ? { ...prev, status: '已取消' } : null);
+      } else if (selectedSubTask) {
+        const nextId = selectedSubTask.next_sub_task_id;
+        await api.cancelSubTask(selectedSubTask.id);
+        const refreshed = await api.getMainTaskWithSubs(selectedTask.id);
+        if (refreshed) {
+          setSelectedTask(refreshed);
+          navigateNext(refreshed, selectedSubTask.id, nextId);
+        }
       }
       await loadTasks();
     } catch (e) { console.error(e); }

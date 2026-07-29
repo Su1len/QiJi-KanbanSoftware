@@ -85,7 +85,7 @@ const MainView: React.FC<MainViewProps> = (props) => (
     <div style={{ flex: 1, overflow: 'auto', padding: '0 16px', minHeight: 0, position: 'relative' }}>
       <ThemeBackground targetComponent="MainContent" />
       {props.viewMode === 'project' ? (
-        <ProjectView onSelectTask={props.onSelectTaskOnly} onEditTask={props.onEditTask} />
+        <ProjectView onSelectTask={props.onSelectTask} onEditTask={props.onEditTask} />
       ) : (
         <KanbanBoard
           mode={props.mode}

@@ -68,6 +68,14 @@ export function initDatabase(): void {
       created_at    TEXT    NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS daily_records (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      main_task_id  INTEGER NOT NULL REFERENCES main_tasks(id) ON DELETE CASCADE,
+      task_date     TEXT    NOT NULL,
+      created_at    TEXT    NOT NULL,
+      UNIQUE(main_task_id, task_date)
+    );
+
     CREATE TABLE IF NOT EXISTS settings (
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL
@@ -142,6 +150,21 @@ function reassignLetters(taskDate: string): void {
   updateMany();
 }
 
+function reassignLettersForDate(date: string): void {
+  const tasks = db.prepare(`
+    SELECT m.id FROM main_tasks m
+    JOIN daily_records d ON m.id = d.main_task_id
+    WHERE d.task_date = ?
+    ORDER BY m.priority DESC, m.created_at ASC
+  `).all(date) as { id: number }[];
+  const update = db.prepare('UPDATE main_tasks SET letter = ?, updated_at = ? WHERE id = ?');
+  db.transaction(() => {
+    tasks.forEach((task, index) => {
+      update.run(numberToLetters(index), now(), task.id);
+    });
+  })();
+}
+
 // ---- Main Tasks ----
 
 export function createMainTask(data: any) {
@@ -160,6 +183,8 @@ export function createMainTask(data: any) {
       created_at: timestamp, updated_at: timestamp, task_date: data.task_date,
     });
     const mainTaskId = result.lastInsertRowid as number;
+    // Create daily record for the task's date
+    db.prepare('INSERT OR IGNORE INTO daily_records (main_task_id, task_date, created_at) VALUES (?, ?, ?)').run(mainTaskId, data.task_date, timestamp);
     const subTasks: any[] = data.sub_tasks || [];
     const indexToId: number[] = [];
     subTasks.forEach((st, i) => {
@@ -182,6 +207,16 @@ export function createMainTask(data: any) {
     return mainTaskId;
   });
   const mainTaskId = doCreate();
+  // If status is not the default, sync sub-tasks (Case A for new tasks)
+  const newStatus = data.status || '进行中';
+  if (newStatus !== '进行中' && (data.sub_tasks || []).some((s: any) => s.name?.trim())) {
+    const old = getMainTask(mainTaskId) as any;
+    if (old) {
+      // Force a transition: set status to 进行中 first, then moveTask can apply rules
+      db.prepare('UPDATE main_tasks SET status = ? WHERE id = ?').run('进行中', mainTaskId);
+      moveTask(mainTaskId, newStatus);
+    }
+  }
   return getMainTask(mainTaskId);
 }
 
@@ -190,9 +225,12 @@ export function getMainTask(id: number) {
 }
 
 export function getMainTasksByDate(taskDate: string) {
-  const tasks = db.prepare(
-    'SELECT * FROM main_tasks WHERE task_date = ? ORDER BY priority DESC, created_at ASC'
-  ).all(taskDate) as any[];
+  const tasks = db.prepare(`
+    SELECT m.* FROM main_tasks m
+    JOIN daily_records d ON m.id = d.main_task_id
+    WHERE d.task_date = ?
+    ORDER BY m.priority DESC, m.created_at ASC
+  `).all(taskDate) as any[];
   for (const task of tasks) {
     task.sub_tasks = db.prepare(
       'SELECT * FROM sub_tasks WHERE main_task_id = ? ORDER BY sort_order ASC, created_at ASC'
@@ -390,15 +428,8 @@ export function getProgressReportsByDateRange(startDate: string, endDate: string
 
 // ---- Search ----
 
-export function searchTasks(keyword: string, taskDate?: string) {
+export function searchTasks(keyword: string) {
   const term = `%${keyword}%`;
-  if (taskDate) {
-    return db.prepare(`
-      SELECT * FROM main_tasks WHERE task_date = ?
-        AND (name LIKE ? OR content LIKE ? OR purpose LIKE ? OR hints LIKE ? OR approach LIKE ? OR relevants LIKE ?)
-      ORDER BY priority DESC, created_at ASC
-    `).all(taskDate, term, term, term, term, term, term);
-  }
   return db.prepare(`
     SELECT * FROM main_tasks WHERE name LIKE ? OR content LIKE ? OR purpose LIKE ? OR hints LIKE ? OR approach LIKE ? OR relevants LIKE ?
     ORDER BY task_date DESC, priority DESC, created_at ASC
@@ -467,36 +498,41 @@ export function deleteAllTasks(): void {
   db.exec('DELETE FROM progress_reports; DELETE FROM sub_tasks; DELETE FROM main_tasks;');
 }
 
-// ---- Auto carry forward unfinished tasks ----
+// ---- Daily records & carry forward ----
 
-export function autoCarryForward(): void {
-  const lastStartup = getSetting('last_startup_date');
+function localToday(): string {
   const d = new Date();
-  const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
-  // Already ran today — skip
-  if (lastStartup === today) return;
-
-  const doCarry = db.transaction(() => {
+export function ensureDailyRecords(todayOverride?: string): void {
+  const today = todayOverride || localToday();
+  db.transaction(() => {
     const tasks = db.prepare(
-      "SELECT * FROM main_tasks WHERE task_date < ? AND status IN ('进行中', '暂搁置')"
-    ).all(today) as any[];
-
-    if (tasks.length > 0) {
-      const update = db.prepare('UPDATE main_tasks SET task_date = ?, duration = ?, updated_at = ? WHERE id = ?');
-      for (const task of tasks) {
-        let newDuration = task.duration;
-        const num = parseInt(task.duration, 10);
-        if (!isNaN(num) && num > 0) {
-          newDuration = String(num - 1);
+      "SELECT * FROM main_tasks WHERE status IN ('进行中', '暂搁置')"
+    ).all() as any[];
+    const insert = db.prepare('INSERT OR IGNORE INTO daily_records (main_task_id, task_date, created_at) VALUES (?, ?, ?)');
+    for (const task of tasks) {
+      const start = task.task_date;
+      if (start <= today) {
+        // Ensure records from task_date to today
+        let cursor = new Date(start);
+        const end = new Date(today);
+        while (cursor <= end) {
+          const ds = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`;
+          insert.run(task.id, ds, now());
+          cursor.setDate(cursor.getDate() + 1);
         }
-        update.run(today, newDuration, now(), task.id);
       }
+      // Re-index letters for today (via daily_records)
+      reassignLettersForDate(today);
     }
-    // Mark as done for today AFTER the carry operation
-    setSetting('last_startup_date', today);
-  });
-  doCarry();
+  })();
+}
+
+export function syncTaskToToday(mainTaskId: number): void {
+  const today = localToday();
+  db.prepare('INSERT OR IGNORE INTO daily_records (main_task_id, task_date, created_at) VALUES (?, ?, ?)').run(mainTaskId, today, now());
 }
 
 export function getExpiredTasks(taskDate: string) {

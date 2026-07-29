@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Select, Button, Popconfirm, message, Progress } from 'antd';
-import { PushpinOutlined, PushpinFilled, DeleteOutlined, DownloadOutlined, CheckOutlined, UndoOutlined } from '@ant-design/icons';
+import { PushpinOutlined, PushpinFilled, DeleteOutlined, DownloadOutlined } from '@ant-design/icons';
 import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, pointerWithin, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import { api } from '../../utils/api-client';
 import KanbanColumn from './KanbanColumn';
@@ -14,17 +14,23 @@ const ProjectView: React.FC<{
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [tasks, setTasks] = useState<MainTask[]>([]);
   const [pinned, setPinned] = useState(false);
-  const [completed, setCompleted] = useState(false);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const savedProject = localStorage.getItem('qiji_lastProject');
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
-  useEffect(() => { api.getProjects().then(p => setProjects(p || [])); }, []);
+  useEffect(() => {
+    api.getProjects().then(p => {
+      setProjects(p || []);
+      if (savedProject && (p || []).includes(savedProject)) loadTasks(savedProject);
+    });
+  }, []);
 
   const loadTasks = async (name: string) => {
     setLoading(true);
     setSelectedProject(name);
+    localStorage.setItem('qiji_lastProject', name);
     const ts = await api.getTasksByProject(name);
     // Load sub-tasks for each task
     for (const t of ts) {
@@ -33,8 +39,6 @@ const ProjectView: React.FC<{
     }
     setTasks(ts);
     setPinned(ts.some(t => (t as any).project_pinned === 1));
-    const allDone = ts.length > 0 && ts.every(t => t.status === '已完成' || t.status === '已取消');
-    setCompleted(allDone);
     setLoading(false);
   };
 
@@ -59,16 +63,6 @@ const ProjectView: React.FC<{
     setPinned(!pinned);
   };
 
-  const handleComplete = async () => {
-    if (!selectedProject) return;
-    await api.completeProject(selectedProject);
-    loadTasks(selectedProject);
-  };
-  const handleReopen = async () => {
-    if (!selectedProject) return;
-    await api.reopenProject(selectedProject);
-    loadTasks(selectedProject);
-  };
   const handleDelete = async () => {
     if (!selectedProject) return;
     await api.deleteProject(selectedProject);
@@ -98,11 +92,6 @@ const ProjectView: React.FC<{
           <>
             <Button size="small" icon={pinned ? <PushpinFilled style={{ color: '#faad14' }} /> : <PushpinOutlined />}
               onClick={handlePin} />
-            {completed ? (
-              <Button size="small" icon={<UndoOutlined />} onClick={handleReopen}>重新打开</Button>
-            ) : (
-              <Button size="small" icon={<CheckOutlined />} onClick={handleComplete}>标记完成</Button>
-            )}
             <Button size="small" icon={<DownloadOutlined />}
               onClick={() => api.exportRetrospectiveMarkdown(selectedProject)}>导出复盘</Button>
             <Popconfirm title={`确定删除项目"${selectedProject}"？此操作不可恢复。`} onConfirm={handleDelete}>
@@ -130,15 +119,15 @@ const ProjectView: React.FC<{
             onDragCancel={() => setActiveId(null)}>
             <div style={{ display: 'flex', gap: 8, minHeight: '100%' }}>
               {/* Left: 暂搁置 + 已取消 stacked */}
-              <div style={{ width: '25%', display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
-                <KanbanColumn status="暂搁置" width="100%"
+              <div style={{ width: '25%', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+                <div style={{ flex: 1, minHeight: 0 }}><KanbanColumn status="暂搁置" width="100%"
                   tasks={tasks.filter(t => t.status === '暂搁置')}
                   selectedTaskId={selectedId} onSelect={id => { setSelectedId(id); onSelectTask(id); }}
-                  onEdit={onEditTask} />
-                <KanbanColumn status="已取消" width="100%"
+                  onEdit={onEditTask} /></div>
+                <div style={{ flex: 1, minHeight: 0, marginTop: 8 }}><KanbanColumn status="已取消" width="100%"
                   tasks={tasks.filter(t => t.status === '已取消')}
                   selectedTaskId={selectedId} onSelect={id => { setSelectedId(id); onSelectTask(id); }}
-                  onEdit={onEditTask} />
+                  onEdit={onEditTask} /></div>
               </div>
               {columns.map(c => (
                 <KanbanColumn key={c.status} status={c.status} width={c.width}

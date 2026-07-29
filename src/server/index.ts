@@ -22,7 +22,8 @@ import {
   deleteAllTasks,
   setNextSubTask,
   getUnfinishedSubTasks,
-  autoCarryForward,
+  ensureDailyRecords,
+  syncTaskToToday,
   getProjects,
   getTasksByProject,
   pinProject,
@@ -95,15 +96,16 @@ app.get('/api/main-tasks/:id/with-subs', (req, res) => {
 app.put('/api/main-tasks/:id', (req, res) => {
   try {
     const id = Number(req.params.id);
-    // If status is being changed, use moveTask for proper sub-task sync
-    if (req.body.status !== undefined) {
+    const old = getMainTask(id) as any;
+    // If status is being explicitly changed, sync sub-tasks first
+    if (req.body.status !== undefined && old && req.body.status !== old.status) {
       moveTask(id, req.body.status);
-      // Then apply remaining non-status fields via updateMainTask
       const { status, ...rest } = req.body;
-      if (Object.keys(rest).length > 0) {
-        updateMainTask(id, rest);
-      }
-      const task = getMainTask(id);
+      if (Object.keys(rest).length > 0) updateMainTask(id, rest);
+      res.json(getMainTask(id));
+    } else if (req.body.status !== undefined) {
+      // Status unchanged: just update fields, derive from sub-tasks
+      const task = updateMainTask(id, req.body);
       res.json(task);
     } else {
       const task = updateMainTask(id, req.body);
@@ -170,7 +172,7 @@ app.get('/api/progress-reports/by-date-range', (req, res) => {
 app.get('/api/search', (req, res) => {
   try {
     const { keyword, date } = req.query;
-    res.json(searchTasks(keyword as string, date as string | undefined));
+    res.json(searchTasks(keyword as string));
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
@@ -471,9 +473,28 @@ app.post('/api/backup/upload', upload.single('file'), (req: any, res) => {
     fs.unlinkSync(uploaded.path);
     // Reopen DB
     initDatabase();
-    autoCarryForward();
+    ensureDailyRecords();
     res.json({ success: true });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// ==================== AI Key Test ====================
+
+app.post('/api/ai/test-key', async (req, res) => {
+  try {
+    const { apiKey } = req.body;
+    if (!apiKey) { res.status(400).json({ error: '请提供 API 密钥' }); return; }
+    const OpenAI = require('openai');
+    const client = new OpenAI({ baseURL: 'https://api.deepseek.com', apiKey });
+    await client.chat.completions.create({
+      model: 'deepseek-chat',
+      messages: [{ role: 'user', content: 'ping' }],
+      max_tokens: 5, temperature: 0,
+    });
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(400).json({ error: '密钥验证失败，请检查密钥是否正确或网络是否通畅' });
+  }
 });
 
 // ==================== AI Parse ====================
@@ -565,10 +586,27 @@ app.get('/api/themes', (req, res) => {
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
+// ==================== Debug (test helpers) ====================
+
+app.post('/api/debug/ensure-daily', (req, res) => {
+  try { ensureDailyRecords(); res.json({ success: true }); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 // ==================== Start ====================
 
 initDatabase();
-autoCarryForward();
+ensureDailyRecords();
+
+// Cross-day timer: sync unfinished tasks when date changes
+let lastDate = new Date().toISOString().slice(0, 10);
+setInterval(() => {
+  const today = new Date().toISOString().slice(0, 10);
+  if (today !== lastDate) {
+    ensureDailyRecords();
+    lastDate = today;
+  }
+}, 60000);
 
 const BASE_PORT = 3456;
 const MAX_PORT = 3462;

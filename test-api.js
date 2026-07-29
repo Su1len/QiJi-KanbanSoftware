@@ -483,7 +483,89 @@ async function runTests() {
     console.log('  [SKIP] API 密钥加密链 — 未设置 QIJI_DEEPSEEK_API_KEY 环境变量');
   }
 
-  // ── 用例 25：AI 解析（可选，依赖环境变量） ──
+  // ── 用例 25：任务生命周期 — 跨日可见性 ──
+  {
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const { body: mt } = await post('/api/main-tasks', {
+      name: '生命周期测试任务', status: '进行中', task_date: yesterday,
+    });
+    await post('/api/debug/ensure-daily');
+    const today = new Date().toISOString().slice(0, 10);
+    const { body: todayTasks } = await get(`/api/main-tasks?date=${today}`);
+    const visible = Array.isArray(todayTasks) && todayTasks.some(t => t.name === '生命周期测试任务');
+    const { body: yesterdayTasks } = await get(`/api/main-tasks?date=${yesterday}`);
+    const oldVisible = Array.isArray(yesterdayTasks) && yesterdayTasks.some(t => t.name === '生命周期测试任务');
+    record('任务生命周期 — 跨日可见（今天+昨天）', visible && oldVisible,
+      `今天可见: ${visible}, 昨天可见: ${oldVisible}`);
+    await del(`/api/main-tasks/${mt.id}`);
+  }
+
+  // ── 用例 26：表单手动改状态 → 子任务同步 ──
+  {
+    const { body: mt } = await post('/api/main-tasks', {
+      name: '状态同步测试', status: '进行中', task_date: TEST_DATE,
+      sub_tasks: [{ name: '子A' }],
+    });
+    const full = await get(`/api/main-tasks/${mt.id}/with-subs`);
+    const subBefore = full.body?.sub_tasks?.[0]?.status;
+    const { body: updated } = await put(`/api/main-tasks/${mt.id}`, { status: '已完成' });
+    const refetched = await get(`/api/main-tasks/${mt.id}/with-subs`);
+    const subAfter = refetched.body?.sub_tasks?.[0]?.status;
+    const ok = subBefore === '进行中' && subAfter === '已完成' && updated.status === '已完成';
+    record('表单手动改状态 → 子任务同步', ok,
+      `子任务: ${subBefore}→${subAfter}, 主任务: ${updated.status}`);
+    await del(`/api/main-tasks/${mt.id}`);
+  }
+
+  // ── 用例 27：拖拽同步（moveTask API） ──
+  {
+    const { body: mt } = await post('/api/main-tasks', {
+      name: '拖拽同步测试', status: '进行中', task_date: TEST_DATE,
+      sub_tasks: [{ name: '拖拽子A' }],
+    });
+    const full2 = await get(`/api/main-tasks/${mt.id}/with-subs`);
+    const subBefore = full2.body?.sub_tasks?.[0]?.status;
+    // Move to 已完成
+    await put(`/api/main-tasks/${mt.id}/move`, { status: '已完成' });
+    const refetched2 = await get(`/api/main-tasks/${mt.id}/with-subs`);
+    const subAfter = refetched2.body?.sub_tasks?.[0]?.status;
+    const ok = subBefore === '进行中' && subAfter === '已完成';
+    record('拖拽同步 — moveTask 主任务+子任务同步', ok,
+      `子任务: ${subBefore}→${subAfter}`);
+    await del(`/api/main-tasks/${mt.id}`);
+  }
+
+  // ── 用例 28：无子任务直接完成/放弃 ──
+  {
+    const { body: mt } = await post('/api/main-tasks', {
+      name: '无子任务测试', status: '进行中', task_date: TEST_DATE,
+    });
+    await put(`/api/main-tasks/${mt.id}`, { status: '已完成' });
+    const refetched = await get(`/api/main-tasks/${mt.id}`);
+    const ok = refetched?.body?.status === '已完成';
+    // Now try 放弃
+    await put(`/api/main-tasks/${mt.id}`, { status: '已取消' });
+    const ref2 = await get(`/api/main-tasks/${mt.id}`);
+    const ok2 = ref2?.body?.status === '已取消';
+    record('无子任务主任务 — 完成和放弃按钮直接生效', ok && ok2,
+      `完成: ${ok}, 放弃: ${ok2}`);
+    await del(`/api/main-tasks/${mt.id}`);
+  }
+
+  // ── 用例 29：跨日编号重排 ──
+  {
+    const letterDate = `2020-01-${String(1 + Math.floor(Math.random() * 28)).padStart(2, '0')}`;
+    await post('/api/main-tasks', { name: '编号A', status: '进行中', task_date: letterDate });
+    await post('/api/main-tasks', { name: '编号B', status: '进行中', task_date: letterDate });
+    await post('/api/main-tasks', { name: '编号C', status: '进行中', task_date: letterDate });
+    const { body: tasks } = await get(`/api/main-tasks?date=${letterDate}`);
+    const letters = (tasks || []).map(t => t.letter).join(',');
+    const ok = letters === 'A,B,C';
+    record('编号连续性 — 3个任务编号为A,B,C', ok, `letters: ${letters}`);
+    for (const t of (tasks || [])) await del(`/api/main-tasks/${t.id}`);
+  }
+
+  // ── 用例 25（原）：AI 解析（可选，依赖环境变量） ──
   if (AI_KEY) {
     // 保存 API 密钥到设置，并创建加密文件（服务端需要加密文件存在才读 settings）
     await put('/api/settings/deepseek_api_key', { value: AI_KEY });

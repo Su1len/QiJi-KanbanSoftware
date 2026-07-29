@@ -11,7 +11,7 @@ const { TextArea } = Input;
 const THEMRPR_FIELDS = [
   { key: 'purpose', label: '目标', tooltip: '这项任务最终要达成什么？' },
   { key: 'resources', label: '资源', tooltip: '完成这项任务需要哪些人、财、物？' },
-  { key: 'duration', label: '工期', tooltip: '预计需要多少天完成？填写数字即可。' },
+  { key: 'duration', label: '工期', tooltip: '预计需要多少天完成？只能输入整数。', type: 'number' },
   { key: 'effect', label: '预期效果', tooltip: '完成后预期看到什么成果？' },
   { key: 'hints', label: '注意要点', tooltip: '执行过程中需要特别注意什么？' },
   { key: 'approach', label: '实现路径', tooltip: '具体怎么一步步完成？' },
@@ -197,7 +197,10 @@ const TaskFormDialog: React.FC<{
                     </Tooltip>
                   </span>
                 }>
-                  <Input placeholder={f.label} />
+                  {f.key === 'duration'
+                    ? <InputNumber style={{ width: '100%' }} placeholder="整数天数" />
+                    : <Input placeholder={f.label} />
+                  }
                 </Form.Item>
               </Col>
             ))}
@@ -275,7 +278,7 @@ const TaskFormDialog: React.FC<{
                             <Input size="small"
                               value={(st as any)[f.key] || ''}
                               onChange={e => updateSubTask(i, { [f.key]: e.target.value })}
-                              placeholder={`继承主任务`}
+                              placeholder={f.label}
                             />
                           </div>
                         </Col>

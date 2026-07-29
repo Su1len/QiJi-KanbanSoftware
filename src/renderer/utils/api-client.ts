@@ -96,6 +96,8 @@ export const api = {
   // AI
   aiParse: (input: string, history?: any[]) =>
     request<{ tasks: any[] }>('POST', '/api/ai/parse', { input, history }),
+  testApiKey: (apiKey: string) =>
+    request<any>('POST', '/api/ai/test-key', { apiKey }),
 
   // Crypto / API Keys (handled locally)
   encryptApiKey: (apiKey: string, password: string) =>
@@ -135,7 +137,7 @@ export const api = {
   },
   deleteRetrospective: (id: number) => request<any>('DELETE', `/api/retrospectives/${id}`),
   getRetrospectivesByProject: (project: string) => request<any[]>('GET', `/api/retrospectives/by-project?project=${encodeURIComponent(project)}`),
-  exportRetrospectiveMarkdown: (projectName: string, aiSummary?: boolean) => {
+  exportRetrospectiveMarkdown: (projectName: string, aiSummary?: boolean, taskName?: string) => {
     return fetch('/api/retrospectives/export-markdown', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -147,7 +149,7 @@ export const api = {
       a.href = url;
       const d = new Date();
       const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-      a.download = `${projectName}-复盘报告-${ds}.md`;
+      a.download = taskName ? `${taskName}-复盘报告-${ds}.md` : `${projectName}-复盘报告-${ds}.md`;
       a.click();
       URL.revokeObjectURL(url);
     });

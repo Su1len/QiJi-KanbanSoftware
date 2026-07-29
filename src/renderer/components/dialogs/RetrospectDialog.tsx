@@ -64,7 +64,7 @@ const RetrospectDialog: React.FC<{
   const handleExport = async () => {
     try {
       const projectName = (task as any).project_name || '未归类';
-      await api.exportRetrospectiveMarkdown(projectName);
+      await api.exportRetrospectiveMarkdown(projectName, false, task.name);
     } catch (e: any) { message.error('导出失败'); }
   };
 
