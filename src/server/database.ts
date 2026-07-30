@@ -231,11 +231,13 @@ export function getMainTasksByDate(taskDate: string) {
     WHERE d.task_date = ?
     ORDER BY m.priority DESC, m.created_at ASC
   `).all(taskDate) as any[];
-  for (const task of tasks) {
+  tasks.forEach((task, index) => {
+    // Assign per-date letters dynamically (not stored — computed per query)
+    task.letter = numberToLetters(index);
     task.sub_tasks = db.prepare(
       'SELECT * FROM sub_tasks WHERE main_task_id = ? ORDER BY sort_order ASC, created_at ASC'
     ).all(task.id);
-  }
+  });
   return tasks;
 }
 
@@ -524,8 +526,7 @@ export function ensureDailyRecords(todayOverride?: string): void {
           cursor.setDate(cursor.getDate() + 1);
         }
       }
-      // Re-index letters for today (via daily_records)
-      reassignLettersForDate(today);
+      // Letters are computed per-query in getMainTasksByDate, no stored reindex needed
     }
   })();
 }

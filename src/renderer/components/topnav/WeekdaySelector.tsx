@@ -20,7 +20,6 @@ const WeekdaySelector: React.FC<{
           key={i}
           size="small"
           type={isSelected ? 'primary' : 'default'}
-          ghost={!isSelected}
           onClick={() => onSelect(dateStr, i + 1)}
           style={{
             width: 36, height: 36, borderRadius: 18,

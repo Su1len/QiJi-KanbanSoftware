@@ -22,16 +22,22 @@ const TaskActions: React.FC<{
         </Button>
         {mode === 'full' && (
           <>
-            <Button size="small" icon={<ArrowRightOutlined />} onClick={onNextSubTask} disabled={!selectedTask || (selectedTask.sub_tasks?.length || 0) > 0 && !selectedSubTask} style={{ whiteSpace: 'nowrap' }}>
+            <Button size="small" icon={<ArrowRightOutlined />} onClick={onNextSubTask}
+              disabled={!selectedTask || (selectedTask.sub_tasks?.length || 0) === 0 || !selectedSubTask}
+              style={{ whiteSpace: 'nowrap' }}>
               {t('nextSubTaskButton', '下一子任务')}
             </Button>
             <Button size="small" icon={<CheckCircleOutlined />} onClick={onCompleteSubTask}
-              disabled={!selectedTask || (selectedTask.sub_tasks?.length || 0) > 0 && !selectedSubTask}
+              disabled={!selectedTask || ((selectedTask.sub_tasks?.length || 0) === 0
+                ? !['进行中', '暂搁置'].includes(selectedTask.status)
+                : !selectedSubTask)}
               style={{ color: theme.colorScheme.success, whiteSpace: 'nowrap' }}>
               {t('completeButton', '完成')}
             </Button>
             <Button size="small" icon={<CloseCircleOutlined />} onClick={onCancelSubTask}
-              disabled={!selectedTask || (selectedTask.sub_tasks?.length || 0) > 0 && !selectedSubTask}
+              disabled={!selectedTask || ((selectedTask.sub_tasks?.length || 0) === 0
+                ? !['进行中', '暂搁置'].includes(selectedTask.status)
+                : !selectedSubTask)}
               style={{ color: theme.colorScheme.danger, whiteSpace: 'nowrap' }}>
               {t('cancelButton', '放弃')}
             </Button>

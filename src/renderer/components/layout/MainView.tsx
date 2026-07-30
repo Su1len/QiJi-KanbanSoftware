@@ -62,7 +62,10 @@ const MainView: React.FC<MainViewProps> = (props) => (
   <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
     {/* Top Navigation */}
     <div style={{ flexShrink: 0, padding: '0 16px' }}>
-      <SearchBox value={props.searchKeyword} onChange={props.onSearchChange} onSearch={props.onSearch} />
+      <SearchBox viewMode={props.viewMode}
+        onNavigateToDate={(date) => { props.onSearchChange(''); props.onWeekdayClick(date, 1); }}
+        onNavigateToProject={(name) => { /* handled by ProjectView */ }}
+      />
       {props.viewMode === 'date' && (
         <>
           <DateNavigator
