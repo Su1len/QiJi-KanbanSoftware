@@ -20,9 +20,9 @@ const KanbanColumn: React.FC<{
   const { setNodeRef } = useDroppable({ id: `col-${status}` });
   return (
     <div ref={setNodeRef} style={{
-      width, minHeight: 200, flexShrink: 0,
+      width, height: '100%', flexShrink: 0,
       background: 'var(--color-bg-secondary)', borderRadius: 8,
-      padding: 8, overflow: 'auto',
+      padding: 8, overflowY: 'auto',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, padding: '0 4px' }}>
         <Tag color={COLUMN_COLORS[status]}>{status}</Tag>

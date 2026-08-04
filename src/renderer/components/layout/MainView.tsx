@@ -16,6 +16,7 @@ import type { MainTask, SubTask, ProgressReport } from '../../App';
 
 interface MainViewProps {
   viewMode: 'date' | 'project';
+  onChangeView?: (v: 'date' | 'project') => void;
   mode: AppMode;
   searchKeyword: string;
   onSearchChange: (v: string) => void;
@@ -58,13 +59,20 @@ interface MainViewProps {
   selectedDateForAI: string;
 }
 
-const MainView: React.FC<MainViewProps> = (props) => (
-  <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+const MainView: React.FC<MainViewProps> = (props) => {
+  const [navigateProject, setNavigateProject] = React.useState<string | null>(null);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
     {/* Top Navigation */}
     <div style={{ flexShrink: 0, padding: '0 16px' }}>
       <SearchBox viewMode={props.viewMode}
-        onNavigateToDate={(date) => { props.onSearchChange(''); props.onWeekdayClick(date, 1); }}
-        onNavigateToProject={(name) => { /* handled by ProjectView */ }}
+        onNavigateToDate={(date, switchView) => {
+          props.onSearchChange('');
+          if (switchView && props.onChangeView) props.onChangeView('date');
+          props.onWeekdayClick(date, 1);
+        }}
+        onNavigateToProject={setNavigateProject}
       />
       {props.viewMode === 'date' && (
         <>
@@ -88,7 +96,7 @@ const MainView: React.FC<MainViewProps> = (props) => (
     <div style={{ flex: 1, overflow: 'auto', padding: '0 16px', minHeight: 0, position: 'relative' }}>
       <ThemeBackground targetComponent="MainContent" />
       {props.viewMode === 'project' ? (
-        <ProjectView onSelectTask={props.onSelectTask} onEditTask={props.onEditTask} />
+        <ProjectView onSelectTask={props.onSelectTask} onEditTask={props.onEditTask} navigateProject={navigateProject} />
       ) : (
         <KanbanBoard
           mode={props.mode}
@@ -144,6 +152,7 @@ const MainView: React.FC<MainViewProps> = (props) => (
       <RetrospectDialog task={props.selectedTask} onClose={props.onRetrospectClose} />
     )}
   </div>
-);
+  );
+};
 
 export default MainView;

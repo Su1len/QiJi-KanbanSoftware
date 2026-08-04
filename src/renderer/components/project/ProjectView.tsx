@@ -9,7 +9,8 @@ import type { MainTask } from '../../App';
 const ProjectView: React.FC<{
   onSelectTask: (id: number) => void;
   onEditTask: (task: MainTask) => void;
-}> = ({ onSelectTask, onEditTask }) => {
+  navigateProject?: string | null;
+}> = ({ onSelectTask, onEditTask, navigateProject }) => {
   const [projects, setProjects] = useState<string[]>([]);
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [tasks, setTasks] = useState<MainTask[]>([]);
@@ -26,6 +27,10 @@ const ProjectView: React.FC<{
       if (savedProject && (p || []).includes(savedProject)) loadTasks(savedProject);
     });
   }, []);
+
+  useEffect(() => {
+    if (navigateProject) loadTasks(navigateProject);
+  }, [navigateProject]);
 
   const loadTasks = async (name: string) => {
     setLoading(true);
@@ -117,17 +122,21 @@ const ProjectView: React.FC<{
             onDragStart={(e: DragStartEvent) => setActiveId(String(e.active.id))}
             onDragEnd={(e: DragEndEvent) => { handleDragEnd(e); setActiveId(null); }}
             onDragCancel={() => setActiveId(null)}>
-            <div style={{ display: 'flex', gap: 8, minHeight: '100%' }}>
-              {/* Left: 暂搁置 + 已取消 stacked */}
-              <div style={{ width: '25%', display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-                <div style={{ flex: 1, minHeight: 0 }}><KanbanColumn status="暂搁置" width="100%"
-                  tasks={tasks.filter(t => t.status === '暂搁置')}
-                  selectedTaskId={selectedId} onSelect={id => { setSelectedId(id); onSelectTask(id); }}
-                  onEdit={onEditTask} /></div>
-                <div style={{ flex: 1, minHeight: 0, marginTop: 8 }}><KanbanColumn status="已取消" width="100%"
-                  tasks={tasks.filter(t => t.status === '已取消')}
-                  selectedTaskId={selectedId} onSelect={id => { setSelectedId(id); onSelectTask(id); }}
-                  onEdit={onEditTask} /></div>
+            <div style={{ display: 'flex', gap: 8, height: 'calc(100vh - 200px)' }}>
+              {/* Left: 暂搁置 + 已取消 stacked with absolute positioning */}
+              <div style={{ width: '25%', height: '100%', position: 'relative', flexShrink: 0 }}>
+                <div style={{ position: 'absolute', top: 0, height: '50%', width: '100%' }}>
+                  <KanbanColumn status="暂搁置" width="100%"
+                    tasks={tasks.filter(t => t.status === '暂搁置')}
+                    selectedTaskId={selectedId} onSelect={id => { setSelectedId(id); onSelectTask(id); }}
+                    onEdit={onEditTask} />
+                </div>
+                <div style={{ position: 'absolute', bottom: 0, height: '50%', width: '100%' }}>
+                  <KanbanColumn status="已取消" width="100%"
+                    tasks={tasks.filter(t => t.status === '已取消')}
+                    selectedTaskId={selectedId} onSelect={id => { setSelectedId(id); onSelectTask(id); }}
+                    onEdit={onEditTask} />
+                </div>
               </div>
               {columns.map(c => (
                 <KanbanColumn key={c.status} status={c.status} width={c.width}

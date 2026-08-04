@@ -432,10 +432,15 @@ export function getProgressReportsByDateRange(startDate: string, endDate: string
 
 export function searchTasks(keyword: string) {
   const term = `%${keyword}%`;
-  return db.prepare(`
+  const tasks = db.prepare(`
     SELECT * FROM main_tasks WHERE name LIKE ? OR content LIKE ? OR purpose LIKE ? OR hints LIKE ? OR approach LIKE ? OR relevants LIKE ?
     ORDER BY task_date DESC, priority DESC, created_at ASC
-  `).all(term, term, term, term, term, term);
+  `).all(term, term, term, term, term, term) as any[];
+  // Attach maxDate from daily_records for jump logic
+  return tasks.map((t: any) => {
+    const row = db.prepare('SELECT MAX(task_date) as max_date FROM daily_records WHERE main_task_id = ?').get(t.id) as any;
+    return { ...t, max_date: row?.max_date || t.task_date };
+  });
 }
 
 // ---- Settings ----

@@ -266,6 +266,7 @@ const AppInner: React.FC = () => {
         <Content style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', backgroundColor: 'var(--color-bg-primary)' }}>
           <MainView
             viewMode={viewMode}
+            onChangeView={handleChangeView}
             mode={mode}
             searchKeyword={searchKeyword} onSearchChange={setSearchKeyword} onSearch={loadTasks}
             currentMonday={currentMonday} weekDates={weekDates} selectedDate={selectedDate}
