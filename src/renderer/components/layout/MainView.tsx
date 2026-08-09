@@ -38,6 +38,8 @@ interface MainViewProps {
   onNextSubTask: () => void;
   onCompleteSubTask: () => void;
   onCancelSubTask: () => void;
+  onSimpleComplete?: () => void;
+  onSimpleCancel?: () => void;
   onDeleteTask: () => void;
   onNewTask: () => void;
   onEditTask: (task: MainTask) => void;
@@ -56,6 +58,7 @@ interface MainViewProps {
   showRetrospect: boolean;
   onRetrospectClose: () => void;
   onRetrospectTask?: () => void;
+  projectRefreshKey: number;
   selectedDateForAI: string;
 }
 
@@ -96,7 +99,7 @@ const MainView: React.FC<MainViewProps> = (props) => {
     <div style={{ flex: 1, overflow: 'auto', padding: '0 16px', minHeight: 0, position: 'relative' }}>
       <ThemeBackground targetComponent="MainContent" />
       {props.viewMode === 'project' ? (
-        <ProjectView onSelectTask={props.onSelectTask} onEditTask={props.onEditTask} navigateProject={navigateProject} />
+        <ProjectView onSelectTask={props.onSelectTask} onEditTask={props.onEditTask} navigateProject={navigateProject} refreshKey={props.projectRefreshKey} />
       ) : (
         <KanbanBoard
           mode={props.mode}
@@ -121,6 +124,8 @@ const MainView: React.FC<MainViewProps> = (props) => {
         onNextSubTask={props.onNextSubTask}
         onCompleteSubTask={props.onCompleteSubTask}
         onCancelSubTask={props.onCancelSubTask}
+        onSimpleComplete={props.onSimpleComplete}
+        onSimpleCancel={props.onSimpleCancel}
         onDeleteTask={props.onDeleteTask}
         onNewTask={props.onNewTask}
         onOpenAI={props.onOpenAI}

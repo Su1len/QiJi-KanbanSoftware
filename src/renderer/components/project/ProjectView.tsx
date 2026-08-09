@@ -10,7 +10,8 @@ const ProjectView: React.FC<{
   onSelectTask: (id: number) => void;
   onEditTask: (task: MainTask) => void;
   navigateProject?: string | null;
-}> = ({ onSelectTask, onEditTask, navigateProject }) => {
+  refreshKey?: number;
+}> = ({ onSelectTask, onEditTask, navigateProject, refreshKey }) => {
   const [projects, setProjects] = useState<string[]>([]);
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [tasks, setTasks] = useState<MainTask[]>([]);
@@ -31,6 +32,10 @@ const ProjectView: React.FC<{
   useEffect(() => {
     if (navigateProject) loadTasks(navigateProject);
   }, [navigateProject]);
+
+  useEffect(() => {
+    if (refreshKey && selectedProject) loadTasks(selectedProject);
+  }, [refreshKey]);
 
   const loadTasks = async (name: string) => {
     setLoading(true);

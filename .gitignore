@@ -1,4 +1,3 @@
-```gitignore
 # 依赖
 node_modules/
 
@@ -44,4 +43,5 @@ Thumbs.db
 CLAUDE.md
 electron-builder.yml
 github-push-guide.md
-```
+logo_qiji.jpg
+readme-draft.md

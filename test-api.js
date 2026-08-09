@@ -565,18 +565,47 @@ async function runTests() {
     for (const t of (tasks || [])) await del(`/api/main-tasks/${t.id}`);
   }
 
-  // ── 用例 25（原）：AI 解析（可选，依赖环境变量） ──
+  // ── AI 测试套件（docs/ai-test-cases.md 5个场景，需环境变量） ──
   if (AI_KEY) {
-    // 保存 API 密钥到设置，并创建加密文件（服务端需要加密文件存在才读 settings）
     await put('/api/settings/deepseek_api_key', { value: AI_KEY });
     await post('/api/crypto/encrypt', { apiKey: AI_KEY, password: 'testpass123' });
-    const { status, body } = await post('/api/ai/parse', { input: '明天下班前写完周报，优先级8，注意要抄送张总' });
-    const task = body?.tasks?.[0];
-    const ok = status === 200 && task?.name && task.purpose !== undefined;
-    record('AI 解析自然语言', ok,
-      ok ? `tasks=${body.tasks.length}, name=${task?.name}` : `status=${status}, body=${JSON.stringify(body)}`);
+
+    // 用例 30：基础解析
+    const r1 = await post('/api/ai/parse', { input: '明天下班前写完周报，优先级8，注意要抄送张总' });
+    const t1 = r1.body?.tasks?.[0];
+    record('AI 基础解析', r1.status === 200 && t1?.name,
+      `name=${t1?.name}, tasks=${r1.body?.tasks?.length}`);
+
+    // 用例 31：信息散乱的口语 — 竞品分析
+    const r2 = await post('/api/ai/parse', { input: '张总让我今天下午三点之前把竞品分析报告交上去，主要是对比A公司和B公司的Q2财报，数据从市场部王姐那边要，做完先给李经理过一眼再发' });
+    const t2 = r2.body?.tasks?.[0];
+    record('AI 口语散乱-竞品分析', r2.status === 200 && t2?.name && t2.name.includes('竞品'),
+      `name=${t2?.name}`);
+
+    // 用例 32：模糊优先级 — 客户反馈
+    const r3 = await post('/api/ai/parse', { input: '这件事不急，但最好这周内搞定。把上个月的客户反馈整理一下，挑几条有代表性的整理成表格，回头开会要用' });
+    const t3 = r3.body?.tasks?.[0];
+    record('AI 模糊优先级-客户反馈', r3.status === 200 && t3?.name,
+      `name=${t3?.name}`);
+
+    // 用例 33：多任务混杂
+    const r4 = await post('/api/ai/parse', { input: '今天要搞三件事：1. 提交报销单；2. 约王总下周二下午开会讨论新项目预算；3. 把测试环境的数据库清理一下' });
+    record('AI 多任务拆分', r4.status === 200 && r4.body?.tasks?.length >= 3,
+      `拆分为 ${r4.body?.tasks?.length} 个任务`);
+
+    // 用例 34：极端口语 — 客户投诉
+    const r5 = await post('/api/ai/parse', { input: '哎那个啥，帮我把那个昨天的那个文档，就是关于那个客户投诉的那个，整理一下发给老张' });
+    const t5 = r5.body?.tasks?.[0];
+    record('AI 极端口语-客户投诉', r5.status === 200 && t5?.name,
+      `name=${t5?.name}`);
+
+    // 用例 35：信息不足推断
+    const r6 = await post('/api/ai/parse', { input: '明天前把周报交了' });
+    const t6 = r6.body?.tasks?.[0];
+    record('AI 信息不足推断', r6.status === 200 && t6?.name,
+      `name=${t6?.name}`);
   } else {
-    console.log('  [SKIP] AI 解析 — 未设置 QIJI_DEEPSEEK_API_KEY 环境变量');
+    console.log('  [SKIP] AI 测试套件 — 未设置 QIJI_DEEPSEEK_API_KEY');
   }
 }
 

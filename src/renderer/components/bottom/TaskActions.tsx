@@ -11,7 +11,8 @@ const TaskActions: React.FC<{
   onNextSubTask: () => void; onCompleteSubTask: () => void; onCancelSubTask: () => void;
   onDeleteTask: () => void; onNewTask: () => void; onOpenAI: () => void;
   onRetrospectTask?: () => void;
-}> = ({ mode, selectedTask, selectedSubTask, currentSubIndex, onNextSubTask, onCompleteSubTask, onCancelSubTask, onDeleteTask, onNewTask, onOpenAI, onRetrospectTask }) => {
+  onSimpleComplete?: () => void; onSimpleCancel?: () => void;
+}> = ({ mode, selectedTask, selectedSubTask, currentSubIndex, onNextSubTask, onCompleteSubTask, onCancelSubTask, onDeleteTask, onNewTask, onOpenAI, onRetrospectTask, onSimpleComplete, onSimpleCancel }) => {
   const { t, theme } = useTheme();
 
   return (
@@ -38,6 +39,20 @@ const TaskActions: React.FC<{
               disabled={!selectedTask || ((selectedTask.sub_tasks?.length || 0) === 0
                 ? !['进行中', '暂搁置'].includes(selectedTask.status)
                 : !selectedSubTask)}
+              style={{ color: theme.colorScheme.danger, whiteSpace: 'nowrap' }}>
+              {t('cancelButton', '放弃')}
+            </Button>
+          </>
+        )}
+        {mode === 'simple' && (
+          <>
+            <Button size="small" icon={<CheckCircleOutlined />} onClick={onSimpleComplete}
+              disabled={!selectedTask || !['进行中', '暂搁置'].includes(selectedTask.status)}
+              style={{ color: theme.colorScheme.success, whiteSpace: 'nowrap' }}>
+              {t('completeButton', '完成')}
+            </Button>
+            <Button size="small" icon={<CloseCircleOutlined />} onClick={onSimpleCancel}
+              disabled={!selectedTask || !['进行中', '暂搁置'].includes(selectedTask.status)}
               style={{ color: theme.colorScheme.danger, whiteSpace: 'nowrap' }}>
               {t('cancelButton', '放弃')}
             </Button>

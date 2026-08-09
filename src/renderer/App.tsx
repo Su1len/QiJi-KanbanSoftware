@@ -79,6 +79,7 @@ const AppInner: React.FC = () => {
   const [showAI, setShowAI] = useState(false);
   const [showRetrospect, setShowRetrospect] = useState(false);
   const [editingTask, setEditingTask] = useState<MainTask | null>(null);
+  const [projectRefreshKey, setProjectRefreshKey] = useState(0);
 
   // Load tasks for selected date
   const loadTasks = useCallback(async () => {
@@ -213,6 +214,7 @@ const AppInner: React.FC = () => {
         }
       }
       await loadTasks();
+      setProjectRefreshKey(k => k + 1);
     } catch (e) { console.error(e); }
   };
   const handleCancelSubTask = async () => {
@@ -231,6 +233,7 @@ const AppInner: React.FC = () => {
         }
       }
       await loadTasks();
+      setProjectRefreshKey(k => k + 1);
     } catch (e) { console.error(e); }
   };
   const handleDeleteTask = async () => {
@@ -242,6 +245,27 @@ const AppInner: React.FC = () => {
       if (editingTask) { await api.updateMainTask(editingTask.id, data); }
       else { await api.createMainTask({ ...data, task_date: selectedDate }); }
       setShowTaskForm(false); setEditingTask(null); loadTasks();
+      setProjectRefreshKey(k => k + 1);
+    } catch (e) { console.error(e); }
+  };
+  const handleSimpleComplete = async () => {
+    if (!selectedTask) return;
+    try {
+      await api.updateMainTask(selectedTask.id, { status: '已完成' });
+      const refreshed = await api.getMainTaskWithSubs(selectedTask.id);
+      if (refreshed) setSelectedTask(refreshed);
+      await loadTasks();
+      setProjectRefreshKey(k => k + 1);
+    } catch (e) { console.error(e); }
+  };
+  const handleSimpleCancel = async () => {
+    if (!selectedTask) return;
+    try {
+      await api.updateMainTask(selectedTask.id, { status: '已取消' });
+      const refreshed = await api.getMainTaskWithSubs(selectedTask.id);
+      if (refreshed) setSelectedTask(refreshed);
+      await loadTasks();
+      setProjectRefreshKey(k => k + 1);
     } catch (e) { console.error(e); }
   };
   const handleAIResult = (data: any) => { setShowAI(false); setEditingTask(null); loadTasks(); };
@@ -275,6 +299,7 @@ const AppInner: React.FC = () => {
             selectedTask={selectedTask} selectedSubTask={selectedSubTask} currentSubIndex={currentSubIndex}
             onSelectTask={loadTaskDetail} onSelectTaskOnly={handleSelectTaskOnly}
             onNextSubTask={nextSubTask}
+            onSimpleComplete={handleSimpleComplete} onSimpleCancel={handleSimpleCancel}
             onCompleteSubTask={handleCompleteSubTask} onCancelSubTask={handleCancelSubTask}
             onDeleteTask={handleDeleteTask}
             onNewTask={() => { setEditingTask(null); setShowTaskForm(true); }}
@@ -288,6 +313,7 @@ const AppInner: React.FC = () => {
             showAI={showAI} onAIClose={() => setShowAI(false)} onAIResult={handleAIResult}
             selectedDateForAI={selectedDate}
             showRetrospect={showRetrospect} onRetrospectClose={() => setShowRetrospect(false)}
+            projectRefreshKey={projectRefreshKey}
           />
         </Content>
       </Layout>

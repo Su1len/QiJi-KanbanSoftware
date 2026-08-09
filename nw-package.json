@@ -1,13 +1,13 @@
 {
-  "name": "qiji-kanban",
+  "name": "QijiKanbanSoftware",
   "version": "1.0.0",
   "main": "launcher.html",
   "window": {
-    "title": "骐骥看板",
+    "title": "骐骥看板 - QijiKanbanSoftware",
     "width": 1280,
     "height": 720,
     "min_width": 960,
     "min_height": 540,
-    "icon": "assets/icons/icon.png"
+    "icon": "logo_qiji.png"
   }
 }

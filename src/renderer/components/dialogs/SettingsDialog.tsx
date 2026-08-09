@@ -5,6 +5,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useMode } from '../../context/ModeContext';
 import AboutTab from '../settings/AboutTab';
 import RetroHistoryTab from '../settings/RetroHistoryTab';
+import HelpTab from '../settings/HelpTab';
 import dayjs from 'dayjs';
 
 const { RangePicker } = DatePicker;
@@ -227,6 +228,11 @@ const SettingsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       children: <RetroHistoryTab />,
     },
     {
+      key: 'help',
+      label: '使用帮助',
+      children: <HelpTab />,
+    },
+    {
       key: 'about',
       label: '关于骐骥',
       children: <AboutTab />,
@@ -234,7 +240,7 @@ const SettingsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   ];
 
   return (
-    <Modal open onCancel={onClose} footer={null} width={600} title="设置">
+    <Modal open onCancel={onClose} footer={null} width={750} title="设置">
       <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabs} />
     </Modal>
   );

@@ -599,9 +599,10 @@ initDatabase();
 ensureDailyRecords();
 
 // Cross-day timer: sync unfinished tasks when date changes
-let lastDate = new Date().toISOString().slice(0, 10);
+let lastDate = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
 setInterval(() => {
-  const today = new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const today = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   if (today !== lastDate) {
     ensureDailyRecords();
     lastDate = today;

@@ -1,88 +1,82 @@
-# 骐骥看板 — 分步执行计划
+# 骐骥看板 — 执行计划（V1.0 已全部完成）
 
-## 阶段 0：项目脚手架与文档体系
+## 阶段 0：项目脚手架与文档体系 ✅
 
-**目标**：搭建开发环境，建立文档和日志体系。
+- [x] npm 初始化 + 安装所有依赖
+- [x] 配置 tsconfig.json、webpack
+- [x] 创建 CLAUDE.md
+- [x] 创建 docs/（6份文档）
+- [x] 创建 devlog/ + 首日日志
+- [x] 搭建 NW.js 桌面壳骨架，验证启动
 
-- [ ] npm 初始化 + 安装所有依赖
-- [ ] 配置 tsconfig.json、webpack、electron-builder.yml
-- [ ] 创建 CLAUDE.md
-- [ ] 创建 docs/（4份标准文档）
-- [ ] 创建 devlog/ + 首日日志
-- [ ] 搭建 Electron 主进程骨架，验证空白窗口可启动
+## 阶段 1：数据层 ✅
 
-## 阶段 1：数据层
+- [x] database.ts — 初始化、建表（6张）、主任务 CRUD、子任务 CRUD
+- [x] progress_report — 自动生成与查询
+- [x] settings 读写
+- [x] crypto.ts 加解密（AES-256-GCM）
+- [x] daily_records 每日记录机制
 
-**目标**：数据库初始化和所有 CRUD。
+## 阶段 2：核心工具函数 ✅
 
-- [ ] database.ts — 初始化、建表、主任务 CRUD、子任务 CRUD
-- [ ] progress_report — 自动生成与查询
-- [ ] settings 读写
-- [ ] ipc-handlers.ts 骨架
-- [ ] preload/index.ts 桥接层
-- [ ] crypto.ts 加解密
+- [x] task-numbering.ts — 字母编号分配（动态计算）
+- [x] themrpr-utils.ts — 继承比较
+- [x] date-utils.ts — 周计算、日期格式化
+- [x] ai-parser.ts — DeepSeek API 封装
+- [x] graph-utils.ts — 子任务后序结构图生成
 
-## 阶段 2：核心工具函数
+## 阶段 3：全局布局 + 顶部导航 ✅
 
-**目标**：业务逻辑核心算法。
+- [x] ThemeContext + CSS 变量动态注入
+- [x] Sidebar 组件（日历/项目视图切换 + 设置）
+- [x] MainView 布局
+- [x] SearchBox 组件（AutoComplete 全日期搜索 + 跨视图跳转）
+- [x] DateNavigator 组件
+- [x] WeekdaySelector 组件
 
-- [ ] task-numbering.ts — 字母编号分配
-- [ ] themrpr-utils.ts — 继承比较
-- [ ] date-utils.ts — 周计算、日期格式化
-- [ ] ai-parser.ts — DeepSeek API 封装
+## 阶段 4：核心看板表格 ✅
 
-## 阶段 3：全局布局 + 顶部导航
+- [x] KanbanBoard 表格主体（日期视图 7 列）
+- [x] THEMRPR 列（继承逻辑 + Tooltip + 悬停详情）
+- [x] 后序列（只读）
+- [x] StatusBadge（进行中/暂搁置/已取消/已完成）
+- [x] 搜索过滤联动
+- [x] 简易模式（3 列）
 
-**目标**：UI 骨架和导航功能。
+## 阶段 5：底部操作区 ✅
 
-- [ ] global.css + CSS 变量
-- [ ] Sidebar 组件
-- [ ] MainView 布局
-- [ ] SearchBox 组件
-- [ ] DateNavigator 组件
-- [ ] WeekdaySelector 组件
+- [x] BottomBar 布局
+- [x] ProgressReport 组件（自动生成 + 每日战报）
+- [x] TaskActions 组件（7 按钮 + 无子任务/有子任务逻辑分离）
+- [x] 所有按钮功能连通
 
-## 阶段 4：核心看板表格
+## 阶段 6：对话框 ✅
 
-**目标**：看板表格（最复杂的 UI 组件）。
+- [x] TaskFormDialog（完整表单 + 动态子任务 + THEMRPR + 后序 + 结构图）
+- [x] AIDialog（输入 → 解析 → 追问 → 预览 → 逐个创建）
+- [x] SettingsDialog（6 个选项卡）
+- [x] RetrospectDialog（计划 vs 实际 8 维度）
+- [x] WelcomePage（产品哲学 + 模式选择）
 
-- [ ] KanbanBoard 表格主体
-- [ ] TaskNumberCell
-- [ ] THEMRPRCell（含继承逻辑和 Tooltip）
-- [ ] StatusBadge
-- [ ] 搜索过滤联动
+## 阶段 7：主题换肤 ✅
 
-## 阶段 5：底部操作区
+- [x] 4 套内置主题（深蓝/墨绿/暖橙/浅灰）
+- [x] 14 色 CSS 变量动态注入
+- [x] 免编译自定义主题（hidden 标记）
+- [x] 背景图片/渐变叠加
+- [x] 文案和字体覆盖
 
-**目标**：底部操作栏和进展报告。
+## 阶段 8：项目视图 ✅
 
-- [ ] BottomBar 布局
-- [ ] ProgressReport 组件
-- [ ] TaskActions 组件（6按钮 + 3行信息）
-- [ ] 所有按钮功能连通
+- [x] 四列看板（暂搁置/已取消/进行中/已完成）
+- [x] @dnd-kit 拖拽卡片
+- [x] 12 条拖拽同步规则 + 状态推导
+- [x] 项目置顶/删除/复盘导出
+- [x] localStorage 记忆上次项目
 
-## 阶段 6：对话框
+## 阶段 9：集成测试 ✅
 
-**目标**：任务表单、AI 助理、设置。
-
-- [ ] TaskFormDialog（完整表单 + 动态子任务列表）
-- [ ] AIDialog（输入 → 解析 → 预览 → 冲突检测 → 写入）
-- [ ] SettingsDialog + 4 个选项卡
-
-## 阶段 7：主题换肤
-
-**目标**：预设主题切换。
-
-- [ ] 4-6 套配色方案 CSS
-- [ ] SkinTab 缩略图预览
-- [ ] 主题持久化
-
-## 阶段 8：集成测试 + 打包
-
-**目标**：全功能测试，生成 Windows .exe。
-
-- [ ] 全流程走查
-- [ ] 边界测试
-- [ ] Bug 修复
-- [ ] electron-builder 打包
-- [ ] 验证安装包
+- [x] test-api.js：30 个自动化回归测试用例
+- [x] 数据库隔离 + 自动备份还原
+- [x] 零依赖（Node.js 内置模块）
+- [x] AI 端点可选测试

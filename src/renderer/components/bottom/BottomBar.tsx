@@ -12,6 +12,7 @@ interface BottomBarProps {
   onNextSubTask: () => void; onCompleteSubTask: () => void; onCancelSubTask: () => void;
   onDeleteTask: () => void; onNewTask: () => void; onOpenAI: () => void;
   onRetrospectTask?: () => void;
+  onSimpleComplete?: () => void; onSimpleCancel?: () => void;
   progressReports: PR[];
 }
 
@@ -34,6 +35,8 @@ const BottomBar: React.FC<BottomBarProps> = (props) => (
           onCancelSubTask={props.onCancelSubTask} onDeleteTask={props.onDeleteTask}
           onNewTask={props.onNewTask} onOpenAI={props.onOpenAI}
         onRetrospectTask={props.onRetrospectTask}
+        onSimpleComplete={props.onSimpleComplete}
+        onSimpleCancel={props.onSimpleCancel}
         />
       </Col>
     </Row>

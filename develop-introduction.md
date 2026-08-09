@@ -4,8 +4,6 @@
 
 骐骥看板（Qiji Kanban）是一款运行于 Windows 的本地桌面任务管理软件。所有数据存储在本地 SQLite 数据库，无需网络连接即可使用（AI 助理功能依赖 DeepSeek API 除外）。
 
-**寓意**："骐骥"取自《荀子·劝学》"骐骥一跃，不能十步；驽马十驾，功在不舍"，取其中踏实耕耘、持之以恒的精神。
-
 **开发方式**：Vibe Coding — 开发者提供产品需求与设计决策，AI 助手执行编码实现。开发者在项目中承担产品经理与架构设计角色。
 
 ---
@@ -81,11 +79,15 @@ NW.js v0.88 内置 Node.js v22，而 better-sqlite3 编译时使用的是 Node.j
 
 ### 3.1 表结构
 
-**main_tasks**（主任务）：18 列，含 THEMRPR 8 字段 + 元数据
+**main_tasks**（主任务）：19 列，含 THEMRPR 8 字段 + 项目关联 + 元数据
 
-**sub_tasks**（子任务）：18 列，含 THEMRPR 8 字段（nullable，null = 继承主任务）+ `next_sub_task_id`（后序子任务指定）
+**sub_tasks**（子任务）：19 列，含 THEMRPR 8 字段（nullable，null = 继承主任务）+ `next_sub_task_id`（后序子任务指定）
+
+**daily_records**（每日记录）：4 列，每个进行中/暂搁置任务从创建日到今天的每日可见记录，UNIQUE(main_task_id, task_date)
 
 **progress_reports**（进展报告）：5 列，子任务完成时自动生成
+
+**retrospectives**（复盘记录）：11 列，8 个 THEMRPR 维度计划 vs 实际对比 + 经验教训
 
 **settings**（设置）：key-value 键值对，存储主题、模式、API 配置等
 
@@ -197,7 +199,7 @@ NW.js v0.88 内置 Node.js v22，而 better-sqlite3 编译时使用的是 Node.j
 
 ### 第一阶段：初版（2026-06-05）
 
-一天内完成从零到全功能可用。建了项目脚手架、数据层（4 张表 + 完整 CRUD）、工具函数（编号算法、THEMRPR 比较、日期计算）、所有 7 个 UI 模块。
+从零到全功能可用。建了项目脚手架、数据层（4 张表 + 完整 CRUD）、工具函数（编号算法、THEMRPR 比较、日期计算）、所有 7 个 UI 模块。
 
 关键决策：放弃 Electron（模块解析问题），改用 Express REST API + 浏览器访问。
 
@@ -322,10 +324,11 @@ Electron 的 `require('electron')` 在特定环境下返回路径字符串而非
 
 ## 八、待完成事项
 
-- [ ] 软件图标替换
-- [ ] 自动化测试
+- [x] 软件图标替换
+- [x] 自动化测试（30 项）
+- [x] 第三方许可证文档
+- [x] Electron 残留文件清理（`src/main/`、`electron-builder.yml` 等）
 - [ ] GitHub 仓库创建与发布
-- [ ] Electron 残留文件清理（`src/main/`、`electron-builder.yml` 等）
 
 ---
 
@@ -333,12 +336,10 @@ Electron 的 `require('electron')` 在特定环境下返回路径字符串而非
 
 | 版本 | 日期 | 内容 |
 |------|------|------|
-| 1.0.0 | 2026-06-05 | 初版：7 个模块完整实现 |
-| 1.1.0 | 2026-06-12 | 桌面化 + 主题系统 + 端口管理 |
-| 1.2.0 | 2026-06-19 | 十项改进 + 后序选择器 + 多项修复 |
+| V1.0 | 2026-08-10 | 项目视图拖拽看板 + daily_records + 复盘系统 + AI 三步流程 + 备份恢复 + 30 项回归测试 |
 
 ---
 
 > 开发者：桑尼之子 昭深
 > 
-> 特别鸣谢：孙海鸥老师
+> 特别鸣谢：孙海鸥老师、唐彬老师、李莹莹同学

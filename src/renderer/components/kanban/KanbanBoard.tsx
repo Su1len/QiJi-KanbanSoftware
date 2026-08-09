@@ -75,7 +75,14 @@ const KanbanBoard: React.FC<{
     {
       title: '任务列表', dataIndex: 'name', key: 'name', width: mode === 'simple' ? '75%' : '22%',
       render: (name: string, row: any) => (
-        <span style={{ paddingLeft: row.type === 'sub' ? 20 : 0, color: row.type === 'sub' ? 'var(--color-text-secondary)' : undefined }}>{name}</span>
+        <span style={{
+          paddingLeft: row.type === 'sub' ? 20 : 0,
+          color: row.type === 'sub' ? 'var(--color-text-secondary)' : undefined,
+          cursor: mode === 'simple' && row.type === 'main' ? 'pointer' : undefined,
+        }}
+        onClick={() => { if (mode === 'simple' && row.type === 'main') onEditTask(row.task); }}
+        title={mode === 'simple' && row.type === 'main' ? '点击编辑任务' : undefined}
+        >{name}</span>
       ),
     },
     {

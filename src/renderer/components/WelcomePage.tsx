@@ -19,10 +19,10 @@ const WelcomePage: React.FC = () => {
         <div style={{ textAlign: 'center', padding: '48px 24px' }}>
           <h2 style={{ margin: 0, fontSize: 22 }}>欢迎来到骐骥</h2>
           <p style={{ margin: '24px 0 12px', fontSize: 16, color: 'var(--color-text-primary)', lineHeight: 2 }}>
-            你的 AI，只做参谋，不做监工。
+            骐骥看板愿做您工作中的一束微光。你的数据，永远属于您。
           </p>
           <p style={{ margin: '0 0 40px', color: 'var(--color-text-secondary)', fontSize: 14 }}>
-            所有数据均存储于本地，你的努力只有你自己知道。
+            数据库的所有数据均存储于本地，请您定期备份以防止故障。
           </p>
           <Button type="primary" size="large" onClick={() => setStep('mode')}>
             开始使用
