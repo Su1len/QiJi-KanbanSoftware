@@ -119,6 +119,13 @@ function pollForResult() {
 function navigateIn(port) {
   window.location.href = 'http://localhost:' + port;
 }
+
+// Ensure NW.js exits completely when window closes
+var gui = require('nw.gui');
+var win = gui.Window.get();
+win.on('close', function() {
+  gui.App.quit();
+});
 </script>
 </body>
 </html>
