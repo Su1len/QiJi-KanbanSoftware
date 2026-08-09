@@ -450,27 +450,18 @@ app.get('/api/backup/download', (req, res) => {
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
-import multer from 'multer';
-const uploadDir = path.join(__dirname, '..', '..', 'data', 'uploads');
-const upload = multer({ dest: uploadDir });
-
-app.post('/api/backup/upload', upload.single('file'), (req: any, res) => {
+app.post('/api/backup/upload', (req, res) => {
   try {
-    const uploaded = req.file;
-    if (!uploaded) { res.status(400).json({ error: '请选择一个数据库文件' }); return; }
+    const { fileData, fileName } = req.body;
+    if (!fileData) { res.status(400).json({ error: '请选择一个数据库文件' }); return; }
+    const buf = Buffer.from(fileData, 'base64');
     // Validate SQLite file header
-    const header = Buffer.alloc(16);
-    const fd = fs.openSync(uploaded.path, 'r');
-    fs.readSync(fd, header, 0, 16, 0);
-    fs.closeSync(fd);
-    if (header.toString('utf8', 0, 16) !== 'SQLite format 3 ') {
-      fs.unlinkSync(uploaded.path);
+    if (buf.slice(0, 16).toString('utf8') !== 'SQLite format 3 ') {
       res.status(400).json({ error: '无效的数据库文件' }); return;
     }
     // Replace current DB
     closeDatabase();
-    fs.copyFileSync(uploaded.path, DB_FILE);
-    fs.unlinkSync(uploaded.path);
+    fs.writeFileSync(DB_FILE, buf);
     // Reopen DB
     initDatabase();
     ensureDailyRecords();

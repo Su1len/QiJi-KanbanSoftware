@@ -122,10 +122,20 @@ export const api = {
         URL.revokeObjectURL(url);
       });
   },
-  uploadBackup: (file: File) => {
-    const form = new FormData();
-    form.append('file', file);
-    return fetch('/api/backup/upload', { method: 'POST', body: form }).then(r => r.json());
+  uploadBackup: (file: File): Promise<any> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(',')[1];
+        fetch('/api/backup/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileData: base64, fileName: file.name }),
+        }).then(r => r.json()).then(resolve).catch(reject);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
   },
 
   // Retrospectives
