@@ -9,5 +9,6 @@
     "min_width": 960,
     "min_height": 540,
     "icon": "logo_qiji.png"
-  }
+  },
+  "chromium-args": "--disable-background-networking --disable-component-update --disable-sync --disable-default-apps --no-first-run"
 }
