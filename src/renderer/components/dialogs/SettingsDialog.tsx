@@ -54,7 +54,12 @@ const SettingsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     }
     const start = exportRange[0].format('YYYY-MM-DD');
     const end = exportRange[1].format('YYYY-MM-DD');
-    window.open(`/api/export-excel?startDate=${start}&endDate=${end}`, '_blank');
+    try {
+      await api.downloadExcel(start, end);
+      message.success('Excel 已导出');
+    } catch (e: any) {
+      message.error(e.message || '导出失败');
+    }
   };
 
   const handleDeleteAll = async () => {

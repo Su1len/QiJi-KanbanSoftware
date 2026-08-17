@@ -18,6 +18,7 @@ import {
   searchTasks,
   getSetting,
   setSetting,
+  deleteSetting,
   getTasksForExport,
   deleteAllTasks,
   setNextSubTask,
@@ -44,8 +45,58 @@ import {
 const app = express();
 const PORT = 3456;
 
-app.use(cors());
+// Only allow same-machine origins (browser pages) to call the API.
+// Requests with no Origin header (e.g. the test script, local tools) are not affected.
+const LOCAL_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/;
+app.use(cors({
+  origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    if (!origin || LOCAL_ORIGIN.test(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, false);
+    }
+  },
+}));
 app.use(express.json());
+
+// ==================== Session token ====================
+// A random token generated at server startup. It is injected into the served
+// index.html and must accompany every mutating (POST/PUT/DELETE) API call.
+// This closes the "blind request" hole: a malicious web page cannot obtain the
+// token (cross-origin reads are blocked) and cannot send the custom header
+// (the CORS preflight is denied), so even destructive endpoints are protected.
+// Requests without an Origin header (Node-based clients such as test-api.js)
+// are allowed, and the local webpack dev server (port 3000) is trusted because
+// a browser Origin header cannot be forged by a web page.
+const DEV_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]):3000$/;
+app.use((req, res, next) => {
+  const method = (req.method || '').toUpperCase();
+  if (method !== 'POST' && method !== 'PUT' && method !== 'DELETE') return next();
+  if (!req.path.startsWith('/api')) return next();
+  const token = req.headers['x-kanban-token'] as string | undefined;
+  const origin = req.headers['origin'] as string | undefined;
+  if (token === sessionToken) return next();
+  if (!origin) return next();
+  if (DEV_ORIGIN.test(origin)) return next();
+  res.status(403).json({ error: '本机令牌验证失败，请从看板界面发起请求' });
+});
+
+// Serve the SPA entry with the session token injected.
+function serveIndex(res: any): void {
+  try {
+    const html = fs.readFileSync(INDEX_HTML_PATH, 'utf8');
+    const injected = html.replace(
+      '</body>',
+      `<script>window.__KANBAN_TOKEN__ = "${sessionToken}";</script></body>`
+    );
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(injected);
+  } catch (e: any) {
+    res.status(500).send('界面文件加载失败');
+  }
+}
+app.get('/', (_req, res) => serveIndex(res));
+app.get('/index.html', (_req, res) => serveIndex(res));
 
 // Serve static files from dist/renderer (webpack output)
 app.use(express.static(path.join(__dirname, '..', 'renderer')));
@@ -245,6 +296,11 @@ app.get('/api/settings/:key', (req, res) => {
 
 app.put('/api/settings/:key', (req, res) => {
   try {
+    // API key must never be persisted as plaintext; it lives only in the encrypted file.
+    if (req.params.key === 'deepseek_api_key') {
+      res.json({ success: true });
+      return;
+    }
     setSetting(req.params.key, req.body.value);
     res.json({ success: true });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -326,6 +382,15 @@ const ALGORITHM = 'aes-256-gcm';
 const IV_LEN = 16; const SALT_LEN = 64; const TAG_LEN = 16;
 const KEY_LEN = 32; const ITERS = 100000;
 
+// Session token used to guard mutating API endpoints (see middleware above).
+const sessionToken = crypto.randomBytes(32).toString('hex');
+const INDEX_HTML_PATH = path.join(__dirname, '..', 'renderer', 'index.html');
+
+// Decrypted API key, held in memory only (never written to disk or the database).
+// It is populated when the user saves the key (encrypt) or unlocks it (decrypt),
+// and is cleared when the server restarts.
+let unlockedApiKey: string | null = null;
+
 function deriveKey(pw: string, salt: Buffer): Buffer {
   return crypto.pbkdf2Sync(pw, salt, ITERS, KEY_LEN, 'sha512');
 }
@@ -342,6 +407,9 @@ app.post('/api/crypto/encrypt', (req, res) => {
     const result = Buffer.concat([salt, iv, tag, enc]);
     if (!fs.existsSync(CRYPTO_DIR)) fs.mkdirSync(CRYPTO_DIR, { recursive: true });
     fs.writeFileSync(KEY_FILE, result.toString('base64'));
+    // Unlock in memory and make sure no plaintext copy remains in the database.
+    unlockedApiKey = apiKey;
+    deleteSetting('deepseek_api_key');
     res.json({ success: true });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
@@ -359,7 +427,10 @@ app.post('/api/crypto/decrypt', (req, res) => {
     const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
     decipher.setAuthTag(tag);
     const dec = Buffer.concat([decipher.update(enc), decipher.final()]);
-    res.json({ value: dec.toString('utf8') });
+    const plain = dec.toString('utf8');
+    // Unlock in memory so the AI assistant can use the key during this session.
+    unlockedApiKey = plain;
+    res.json({ value: plain });
   } catch (e: any) { res.status(500).json({ error: '密码错误或数据损坏' }); }
 });
 
@@ -494,12 +565,12 @@ app.post('/api/ai/parse', async (req, res) => {
   try {
     const { input, history } = req.body;
     if (!input) return res.status(400).json({ error: '请输入任务描述' });
-    let apiKey = '';
-    if (fs.existsSync(KEY_FILE)) {
-      const settingKey = getSetting('deepseek_api_key');
-      if (settingKey) apiKey = settingKey;
+    // The key is read from the in-memory unlocked copy only (decrypted from the
+    // encrypted file when the user saved/unlocked it). No plaintext in the database.
+    const apiKey = unlockedApiKey;
+    if (!apiKey) {
+      return res.status(400).json({ error: 'API 密钥尚未解锁：请打开"设置 → API 密钥管理"，输入访问密码并点击"查看/修改"解锁' });
     }
-    if (!apiKey) return res.status(400).json({ error: '请先在设置中配置 DeepSeek API 密钥' });
 
     const OpenAI = require('openai');
     const client = new OpenAI({ baseURL: 'https://api.deepseek.com', apiKey });
@@ -548,7 +619,7 @@ app.post('/api/ai/parse', async (req, res) => {
 
 app.get('*', (req, res, next) => {
   if (!req.path.startsWith('/api')) {
-    res.sendFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+    serveIndex(res);
   } else {
     next();
   }
@@ -588,6 +659,12 @@ app.post('/api/debug/ensure-daily', (req, res) => {
 
 initDatabase();
 ensureDailyRecords();
+
+// Security migration: if an encrypted copy of the API key exists, remove any
+// plaintext copy left in the settings table by older versions.
+if (fs.existsSync(KEY_FILE)) {
+  try { deleteSetting('deepseek_api_key'); } catch (e) { console.error('清理历史明文密钥失败:', (e as any)?.message); }
+}
 
 // Cross-day timer: sync unfinished tasks when date changes
 let lastDate = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
@@ -631,7 +708,9 @@ function startParentMonitor(): void {
 }
 
 function tryListen(port: number): void {
-  const server = app.listen(port, () => {
+  // Bind to 127.0.0.1 only: the service must never be reachable from other
+  // devices on the local network.
+  const server = app.listen(port, '127.0.0.1', () => {
     console.log(`\n  骐骥看板服务器已启动`);
     console.log(`  地址: http://localhost:${port}\n`);
     startParentMonitor();

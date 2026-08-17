@@ -454,6 +454,10 @@ export function setSetting(key: string, value: string): void {
   db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value);
 }
 
+export function deleteSetting(key: string): void {
+  db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+}
+
 // ---- SubTask ordering (next_sub_task_id) ----
 
 export function setNextSubTask(subTaskId: number, nextId: number | null): { success: boolean; error?: string } {

@@ -6,13 +6,21 @@
 const BASE = '';
 const TIMEOUT_MS = 15000;
 
+// Session token injected by the server into the served index.html.
+// It must accompany mutating API calls (see server-side token middleware).
+const SESSION_TOKEN =
+  typeof window !== 'undefined' && (window as any).__KANBAN_TOKEN__
+    ? (window as any).__KANBAN_TOKEN__
+    : '';
+const TOKEN_HEADERS: Record<string, string> = SESSION_TOKEN ? { 'X-Kanban-Token': SESSION_TOKEN } : {};
+
 async function request<T>(method: string, url: string, body?: any): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   const options: RequestInit = {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...TOKEN_HEADERS },
     signal: controller.signal,
   };
   if (body) options.body = JSON.stringify(body);
@@ -74,9 +82,25 @@ export const api = {
   exportToExcel: (startDate: string, endDate: string) =>
     request<any[]>('GET', `/api/export?startDate=${startDate}&endDate=${endDate}`),
 
-  // Download Excel
+  // Download Excel (POST with token; server streams the xlsx back)
   downloadExcel: (startDate: string, endDate: string) => {
-    window.open(`/api/export-excel?startDate=${startDate}&endDate=${endDate}`, '_blank');
+    return fetch('/api/export-excel', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...TOKEN_HEADERS },
+      body: JSON.stringify({ startDate, endDate }),
+    }).then(async r => {
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({ error: '导出失败' }));
+        throw new Error(err.error || `导出失败 (${r.status})`);
+      }
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `kanban-export-${startDate}-${endDate}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    });
   },
 
   // Projects
@@ -129,7 +153,7 @@ export const api = {
         const base64 = (reader.result as string).split(',')[1];
         fetch('/api/backup/upload', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...TOKEN_HEADERS },
           body: JSON.stringify({ fileData: base64, fileName: file.name }),
         }).then(r => r.json()).then(resolve).catch(reject);
       };
@@ -150,7 +174,7 @@ export const api = {
   exportRetrospectiveMarkdown: (projectName: string, aiSummary?: boolean, taskName?: string) => {
     return fetch('/api/retrospectives/export-markdown', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...TOKEN_HEADERS },
       body: JSON.stringify({ projectName, aiSummary: aiSummary || false }),
     }).then(async r => {
       const blob = await r.blob();

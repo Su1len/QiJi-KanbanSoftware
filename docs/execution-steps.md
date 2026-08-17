@@ -4,7 +4,6 @@
 
 - [x] npm 初始化 + 安装所有依赖
 - [x] 配置 tsconfig.json、webpack
-- [x] 创建 CLAUDE.md
 - [x] 创建 docs/（6份文档）
 - [x] 创建 devlog/ + 首日日志
 - [x] 搭建 NW.js 桌面壳骨架，验证启动

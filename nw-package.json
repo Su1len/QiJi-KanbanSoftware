@@ -10,5 +10,6 @@
     "min_height": 540,
     "icon": "logo_qiji.png"
   },
-  "chromium-args": "--disable-background-networking --disable-component-update --disable-sync --disable-default-apps --no-first-run"
+  "chromium-args": "--disable-background-networking --disable-component-update --disable-sync --disable-default-apps --no-first-run",
+  "inject-js-end": "quit-handler.js"
 }

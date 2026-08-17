@@ -101,9 +101,7 @@ Working/                              ← 项目根目录
 ├── tsconfig.server.json              ← TypeScript 编译器配置（服务器用）
 ├── tsconfig.main.json                ← TypeScript 编译器配置（Electron备用，未用）
 ├── webpack.config.js                 ← Webpack 打包配置
-├── electron-builder.yml              ← Electron 打包配置（备用，未用）
 │
-├── CLAUDE.md                         ← 给 AI 助手看的项目指引
 ├── develop-principle.md              ← 你正在读的这份文档
 ├── conversation-log.md               ← 对话记录
 │
@@ -249,7 +247,6 @@ Working/                              ← 整个项目文件夹
 ├── tsconfig.json                     ← TypeScript 配置（必须）
 ├── tsconfig.server.json              ← 同上（必须）
 ├── webpack.config.js                 ← Webpack 配置（必须）
-├── CLAUDE.md                         ← 项目指引（推荐）
 ├── develop-principle.md              ← 本说明文档（推荐）
 ├── conversation-log.md               ← 对话记录（可选）
 ├── .gitignore                        ← Git 忽略规则（必须）

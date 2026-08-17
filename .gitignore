@@ -39,6 +39,10 @@ MingRenMingYan.txt
 # 系统文件
 Thumbs.db
 .DS_Store
+
+# 日志与临时文件
+*.log
+*.bak
 .claude/
 CLAUDE.md
 electron-builder.yml
