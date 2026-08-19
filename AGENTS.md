@@ -1,0 +1,52 @@
+# AGENTS.md — 骐骥看板项目指引
+
+本文件面向 AI 辅助开发工具，帮助你快速理解项目并遵守规范。详细文档见 README.md、develop-introduction.md、develop-principle.md、docs/。
+
+## 一、项目定位与核心原则
+
+骐骥看板是运行于 Windows 的**本地优先**个人任务管理软件（NW.js 桌面应用）。核心原则：
+
+1. **本地优先、数据主权归用户**：所有数据存于本地 SQLite（`data/kanban.db`），无云端同步、无遥测上报。任何功能不得引入静默数据外传。
+2. **THEMRPR 框架**：任务围绕 目标/资源/工期/预期效果/注意要点/实现路径/相关方 七维度展开，"从记一笔升级为计划一次"。这是产品灵魂，不要弱化它。
+3. **AI 只做参谋，不做监工**：AI 助理（DeepSeek）仅做自然语言解析与建议，可选、可关闭。
+4. **小即是大**：克制功能膨胀，优先做减法。
+
+## 二、技术架构摘要
+
+- **桌面壳**：NW.js v0.88（`release/qiji-kanban/QijiKanbanSoftware.exe`，入口 launcher.html）
+- **后端**：Express v4 + 便携版 Node.js v24 子进程（`node-portable/node.exe dist/server/index.js`），端口 3456~3462
+- **前端**：React 19 + TypeScript + Ant Design 6（webpack 打包到 dist/renderer）
+- **数据库**：SQLite（better-sqlite3，WAL 模式），6 张表：main_tasks、sub_tasks、daily_records、progress_reports、retrospectives、settings
+- **AI**：openai SDK（baseURL 指向 DeepSeek）——**严禁删除 openai 包**
+- 历史遗留：Electron 架构已全部清除，不要再引入
+
+## 三、关键机制说明
+
+1. **父进程监听**：服务端每 5 秒探测父进程（NW.js）存活，父进程退出即自杀。NW.js 窗口关闭时由 `quit-handler.js`（inject-js-end 注入）+ 前端 `src/renderer/index.tsx` 注册的关窗退出共同保证零残留。
+2. **端口回退**：3456 起依次回退至 3462；端口状态经 `data/server-port.txt`/`server-error.txt` 与启动器通信。
+3. **访问令牌与 CSP**：服务端启动生成随机令牌，注入页面 `<meta name="kanban-token">`（**不能用内联 script——页面 CSP `script-src 'self'` 会拦截**）；前端 api-client 每次请求带 `X-Kanban-Token` 头；POST/PUT/DELETE 校验令牌（无 Origin 的 Node 客户端与开发模式 3000 端口豁免）。CORS 仅放行本机来源。
+4. **主题系统**：themes/ 下每主题一个 theme.json（14 色 + 字体 + 文案 + 背景图），CSS 变量注入，免编译；`hidden: true` 不显示。
+5. **THEMRPR 继承模型**：子任务字段为 null = 继承主任务。
+6. **数据表结构**：见 docs/technical-spec.md。**不得擅自修改数据库表结构**，需要迁移时先报告。
+
+## 四、开发与验证规范
+
+1. **实机验证**：功能改动必须在 release 目录实际启动 QijiKanbanSoftware.exe 验证，**不能只用 curl 模拟**（curl 不执行页面 CSP，曾因此漏掉真实 bug）。
+2. **同步 release**：源码改完编译后，必须同步 `dist/`、`themes/`、`quit-handler.js`、NW 配置等到 `release/qiji-kanban/`，并核对哈希。
+3. **改动前报告**：涉及前端 UI、数据结构、依赖删除的操作，先报告等确认，不要自作主张。
+4. **不得删除 openai 包**（连接 DeepSeek 必需）；**不得盲目执行 npm audit fix**（`--force` 会把 exceljs 降级到 3.4.0，属破坏性变更）。
+5. **自动化测试**：`node-portable\node.exe test-api.js`，35 个用例必须全绿；测试自带数据库备份还原，无需人工干预。
+6. 常用命令：`npm run build`（tsc + webpack）、`npm start`（开发模式）、`npm install` 后需确认 test-api 全绿。
+
+## 五、当前状态（V1.0.1）
+
+- 安全加固：仅监听 127.0.0.1、CORS 本机白名单、DeepSeek 密钥不落库（加密文件 + 进程内存解锁）、访问令牌防跨站盲请求
+- 已清理：Electron 全部残留、Claude Code 相关文件与表述、multer 等无用依赖
+- 已修复：NW.js 关窗后台残留（node-remote + 双保险退出）、设置页导出 Excel（带令牌 POST 下载）
+- 版本号已统一为 1.0.1（package.json、nw-package.json、关于页、changelog、文档）
+
+## 六、待办事项
+
+- 清理候选：`.gitignore` 中已失效的 Electron 忽略规则、`data/uploads/` 空目录、`readme-draft.md` 等个人/草稿文件（等确认）
+- npm audit 修复决策待定（见最近一次 audit 报告）
+- V1.1.0 方向（具体待定）：AI 优化（复盘 AI 总结等）、复盘数据可视化、THEMRPR 模板库、主题商店、跨平台支持

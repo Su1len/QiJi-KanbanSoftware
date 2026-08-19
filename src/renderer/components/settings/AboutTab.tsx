@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Button, Collapse, Spin } from 'antd';
 import { HistoryOutlined } from '@ant-design/icons';
 
-const VERSION = 'V1.0';
+const VERSION = 'V1.0.1';
 
 const AboutTab: React.FC = () => {
   const [changelog, setChangelog] = useState<any[] | null>(null);

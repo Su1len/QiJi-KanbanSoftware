@@ -1,8 +1,8 @@
-# 骐骥看板 — 开发原理说明 (V1.0)
+# 骐骥看板 — 开发原理说明 (V1.0.1)
 
 本文档面向非技术读者，用通俗语言解释整个软件的架构、技术选型和项目结构。
 
-> 最后更新：2026-08-05，版本 V1.0
+> 最后更新：2026-08-19，版本 V1.0.1
 
 ---
 
@@ -99,11 +99,9 @@ Working/                              ← 项目根目录
 ├── package.json                      ← 项目的"身份证"：名称、依赖包列表、脚本命令
 ├── tsconfig.json                     ← TypeScript 编译器配置（前端用）
 ├── tsconfig.server.json              ← TypeScript 编译器配置（服务器用）
-├── tsconfig.main.json                ← TypeScript 编译器配置（Electron备用，未用）
 ├── webpack.config.js                 ← Webpack 打包配置
 │
 ├── develop-principle.md              ← 你正在读的这份文档
-├── conversation-log.md               ← 对话记录
 │
 ├── src/                              ←【源代码目录】
 │   ├── server/                       ← 后端代码
@@ -133,7 +131,6 @@ Working/                              ← 项目根目录
 │   │   │   │   ├── SettingsDialog.tsx ← 设置面板
 │   │   │   │   └── AIDialog.tsx       ← AI 助理
 │   │   │   └── settings/             ← 设置子页面（暂未拆分）
-│   │   ├── hooks/                    ← 自定义 Hook（数据获取、主题切换等）
 │   │   ├── utils/                    ← 工具函数
 │   │   │   ├── api-client.ts         ← API 请求封装
 │   │   │   ├── task-numbering.ts     ← 字母编号算法
@@ -248,7 +245,6 @@ Working/                              ← 整个项目文件夹
 ├── tsconfig.server.json              ← 同上（必须）
 ├── webpack.config.js                 ← Webpack 配置（必须）
 ├── develop-principle.md              ← 本说明文档（推荐）
-├── conversation-log.md               ← 对话记录（可选）
 ├── .gitignore                        ← Git 忽略规则（必须）
 └── README.md                         ← 项目介绍（推荐）
 ```
@@ -260,7 +256,7 @@ node_modules/          ← npm 安装的依赖（太大，几百 MB）
 dist/                  ← 编译输出（可在别人电脑上重新编译）
 release/               ← 打包产物（由 GitHub Release 单独发布）
 data/                  ← 数据库文件（可能含个人数据）
-electron-runtime/      ← 试验残留文件
+node-portable/         ← 便携版 Node.js 运行时
 *.log                  ← 日志文件
 ```
 
@@ -284,8 +280,9 @@ node_modules/
 dist/
 release/
 data/
-electron-runtime/
+node-portable/
 *.log
+*.bak
 .DS_Store
 Thumbs.db
 ```

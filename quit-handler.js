@@ -11,7 +11,9 @@
       gui.App.quit();
       this.close(true);
     });
+    try { window.__QUIT_HANDLER_INSTALLED__ = true; } catch (e) {}
   } catch (e) {
+    try { window.__QUIT_HANDLER_ERROR__ = String(e && e.message || e); } catch (e2) {}
     // 非 NW.js 环境（例如普通浏览器中打开）时静默跳过
   }
 })();

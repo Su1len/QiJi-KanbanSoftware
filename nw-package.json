@@ -1,6 +1,6 @@
 {
   "name": "QijiKanbanSoftware",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "main": "launcher.html",
   "window": {
     "title": "骐骥看板 - QijiKanbanSoftware",
@@ -11,5 +11,6 @@
     "icon": "logo_qiji.png"
   },
   "chromium-args": "--disable-background-networking --disable-component-update --disable-sync --disable-default-apps --no-first-run",
-  "inject-js-end": "quit-handler.js"
+  "inject-js-end": "quit-handler.js",
+  "node-remote": ["http://localhost:*", "http://127.0.0.1:*"]
 }
