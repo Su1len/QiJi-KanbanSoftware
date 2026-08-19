@@ -8,6 +8,15 @@
     "http://localhost:*",
     "http://127.0.0.1:*"
   ],
+  "window": {
+    "title": "骐骥看板 - QijiKanbanSoftware",
+    "width": 1280,
+    "height": 720,
+    "min_width": 960,
+    "min_height": 540,
+    "icon": "logo_qiji.png"
+  },
+  "chromium-args": "--disable-background-networking --disable-component-update --disable-sync --disable-default-apps --no-first-run",
   "scripts": {
     "build:server": "tsc -p tsconfig.server.json",
     "build:renderer": "webpack --mode production",
@@ -20,6 +29,9 @@
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "overrides": {
+    "uuid": "^11.1.1"
+  },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
@@ -28,7 +40,6 @@
     "better-sqlite3": "^12.10.0",
     "cors": "^2.8.6",
     "dayjs": "^1.11.21",
-    "exceljs": "^4.4.0",
     "express": "^4.22.2",
     "open": "^11.0.0",
     "openai": "^6.42.0",

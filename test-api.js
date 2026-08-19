@@ -347,15 +347,14 @@ async function runTests() {
       ok ? `导出 ${body.length} 条记录` : `status=${status}`);
   }
 
-  // ── 用例 16：Excel 导出 ──
+  // ── 用例 16：CSV 导出 ──
   {
-    const { status, body } = await request('POST', '/api/export-excel', {
-      startDate: TEST_DATE, endDate: TEST_DATE,
-    });
-    // Excel 返回二进制，检查状态码（不解析 body 为 JSON）
-    const ok = status === 200;
-    record('Excel 导出端点', ok,
-      ok ? `status=${status}` : `status=${status}, body=${JSON.stringify(body)}`);
+    const { status, body } = await get(`/api/export-csv?startDate=${TEST_DATE}&endDate=${TEST_DATE}`);
+    const isCsv = typeof body === 'string' && body.length > 0 && body.charCodeAt(0) === 0xFEFF
+      && body.indexOf('任务名称') >= 0 && body.indexOf('编号') >= 0;
+    const ok = status === 200 && isCsv;
+    record('CSV 导出端点', ok,
+      ok ? `status=${status}, 含BOM+表头` : `status=${status}, body=${typeof body === 'string' ? body.slice(0, 80) : JSON.stringify(body)}`);
   }
 
   // ── 用例 17：progress_reports 清理验证（H2 修复） ──

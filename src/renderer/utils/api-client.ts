@@ -93,11 +93,11 @@ export const api = {
   exportToExcel: (startDate: string, endDate: string) =>
     request<any[]>('GET', `/api/export?startDate=${startDate}&endDate=${endDate}`),
 
-  // Download Excel: direct link navigation so NW.js's native download
+  // Download CSV: direct link navigation so NW.js's native download
   // manager saves the file (blob/anchor downloads do not save in NW.js).
-  downloadExcel: (startDate: string, endDate: string) => {
+  downloadCSV: (startDate: string, endDate: string) => {
     const a = document.createElement('a');
-    a.href = `/api/export-excel?startDate=${startDate}&endDate=${endDate}`;
+    a.href = `/api/export-csv?startDate=${startDate}&endDate=${endDate}`;
     a.download = '';
     document.body.appendChild(a);
     a.click();

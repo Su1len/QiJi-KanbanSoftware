@@ -71,7 +71,7 @@ NW.js v0.88 内置 Node.js v22，而 better-sqlite3 编译时使用的是 Node.j
 | 打包工具 | Webpack 5 | 前端构建 + 静态资源复制 |
 | 加密 | AES-256-GCM | API 密钥本地加密存储 |
 | AI 集成 | DeepSeek API (OpenAI SDK) | 自然语言 → 结构化任务 JSON |
-| Excel 导出 | ExcelJS | 服务端流式写入 |
+| CSV 导出 | Node.js 内置实现 | UTF-8 BOM + CSV 转义，Excel 可直接打开 |
 
 ---
 
@@ -160,7 +160,7 @@ NW.js v0.88 内置 Node.js v22，而 better-sqlite3 编译时使用的是 Node.j
 | 页签 | 功能 |
 |------|------|
 | 换肤 | 主题下拉选择 + 每日总结定时 + 模式切换 |
-| 导出任务 | 日期范围 → Excel 文件下载 |
+| 导出任务 | 日期范围 → CSV 文件下载 |
 | 数据管理 | "一键删除所有任务"（需输入确认文字） |
 | API 密钥管理 | 密钥输入 + 密码加密存储 (AES-256-GCM) |
 | 关于骐骥 | 版本号 + 开发者信息 + 更新日志 |
@@ -276,7 +276,7 @@ Working/
 │   ├── quotes.json          # 12 条名言
 │   └── changelog.json       # 更新日志
 ├── release/qiji-kanban/     # 可分发版本
-│   ├── nw.exe               # NW.js 入口
+│   ├── QijiKanbanSoftware.exe # NW.js 入口
 │   ├── launcher.html        # 启动逻辑（端口检测+进程管理）
 │   ├── node-portable/       # Node.js v24 便携版
 │   ├── dist/                # 编译产物

@@ -13,7 +13,7 @@
 | 数据库 | better-sqlite3 | 12.x |
 | 拖拽 | @dnd-kit | 6.x |
 | 日期处理 | dayjs | 1.x |
-| Excel 导出 | exceljs | 4.x |
+| CSV 导出 | Node.js 内置实现（UTF-8 BOM） | — |
 | AI SDK | openai (兼容 DeepSeek) | 6.x |
 | 打包 | Webpack 5 + tsc | — |
 
@@ -120,7 +120,7 @@ NW.js 桌面壳 (launcher.html)
 | 加密 | POST `/api/crypto/encrypt` `/api/crypto/decrypt` GET `/api/crypto/has-key` |
 | AI | POST `/api/ai/parse` `/api/ai/test-key` |
 | 设置 | GET/PUT `/api/settings/:key` |
-| 导出 | GET `/api/export` POST `/api/export-excel` |
+| 导出 | GET `/api/export` GET `/api/export-csv` |
 
 ## 窗口配置
 

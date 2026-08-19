@@ -327,62 +327,39 @@ app.post('/api/delete-all', (req, res) => {
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
-// ==================== Excel Export (file download) ====================
+// ==================== CSV Export (file download) ====================
 
-async function streamExcelExport(res: any, startDate: string, endDate: string): Promise<void> {
-  const ExcelJS = require('exceljs');
-  const data = getTasksForExport(startDate, endDate);
-
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('任务导出');
-
-  sheet.columns = [
-    { header: '编号', key: 'letter', width: 8 },
-    { header: '任务名称', key: 'name', width: 20 },
-    { header: '状态', key: 'status', width: 10 },
-    { header: '目标', key: 'purpose', width: 15 },
-    { header: '资源', key: 'resources', width: 15 },
-    { header: '工期', key: 'duration', width: 10 },
-    { header: '预期效果', key: 'effect', width: 15 },
-    { header: '注意要点', key: 'hints', width: 20 },
-    { header: '实现路径', key: 'approach', width: 20 },
-    { header: '相关方', key: 'relevants', width: 15 },
-    { header: '优先级', key: 'priority', width: 8 },
-    { header: '内容评估', key: 'content', width: 30 },
-    { header: '子任务', key: 'subs', width: 40 },
-    { header: '进展报告', key: 'reports', width: 50 },
-    { header: '建立时间', key: 'created_at', width: 20 },
-  ];
-
-  for (const task of data) {
-    sheet.addRow({
-      ...task,
-      subs: (task.sub_tasks || []).map((s: any) => `${s.name}[${s.status}]`).join(' | '),
-      reports: (task.reports || []).map((r: any) => r.report_text).join('\n'),
-    });
+function toCsvCell(v: any): string {
+  const s = v === null || v === undefined ? '' : String(v);
+  if (/[",\r\n]/.test(s)) {
+    return '"' + s.replace(/"/g, '""') + '"';
   }
-
-  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  res.setHeader('Content-Disposition', `attachment; filename=kanban-export-${startDate}-${endDate}.xlsx`);
-  await workbook.xlsx.write(res);
-  res.end();
+  return s;
 }
 
-// GET variant: used by the in-app download link (browser navigation download,
-// which NW.js handles natively — blob/anchor downloads do not save files in NW.js).
-app.get('/api/export-excel', async (req, res) => {
+// Direct-link download (browser navigation download, which NW.js handles
+// natively — blob/anchor downloads do not save files in NW.js).
+app.get('/api/export-csv', (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    await streamExcelExport(res, startDate as string, endDate as string);
-  } catch (e: any) {
-    res.status(500).json({ error: e.message });
-  }
-});
-
-app.post('/api/export-excel', async (req, res) => {
-  try {
-    const { startDate, endDate } = req.body;
-    await streamExcelExport(res, startDate, endDate);
+    const data = getTasksForExport(startDate as string, endDate as string);
+    const headers = ['编号', '任务名称', '状态', '目标', '资源', '工期', '预期效果', '注意要点', '实现路径', '相关方', '优先级', '内容评估', '子任务', '进展报告', '建立时间'];
+    const lines: string[] = [headers.map(toCsvCell).join(',')];
+    for (const task of data) {
+      const subs = (task.sub_tasks || []).map((s: any) => `${s.name}[${s.status}]`).join(' | ');
+      const reports = (task.reports || []).map((r: any) => r.report_text).join('\n');
+      const row = [
+        task.letter, task.name, task.status, task.purpose, task.resources,
+        task.duration, task.effect, task.hints, task.approach, task.relevants,
+        task.priority, task.content, subs, reports, task.created_at,
+      ];
+      lines.push(row.map(toCsvCell).join(','));
+    }
+    // UTF-8 BOM so Excel opens Chinese content correctly
+    const csv = '\uFEFF' + lines.join('\r\n');
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename=kanban-export-${startDate}-${endDate}.csv`);
+    res.send(csv);
   } catch (e: any) {
     res.status(500).json({ error: e.message });
   }

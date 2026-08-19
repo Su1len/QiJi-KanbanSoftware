@@ -8,10 +8,10 @@
 
 ## 一、整体架构：软件是怎么跑起来的
 
-当你双击 `nw.exe` 时，发生了以下事情：
+当你双击 `QijiKanbanSoftware.exe` 时，发生了以下事情：
 
 ```
-双击 nw.exe
+双击 QijiKanbanSoftware.exe
   │
   ├─→ NW.js 启动，读取 package.json，找到入口文件 launcher.html
   │
@@ -163,10 +163,11 @@ Working/                              ← 项目根目录
 │
 └── release/                          ←【发行版目录】
     └── qiji-kanban/                  ← 最终给用户的软件包
-        ├── nw.exe                    ← 双击启动
+        ├── QijiKanbanSoftware.exe    ← 双击启动
         ├── 启动看板.bat              ← 备用启动脚本
         ├── launcher.html             ← 启动加载页
         ├── package.json              ← NW.js 配置
+        ├── quit-handler.js           ← 关窗退出处理器
         ├── dist/                     ← 编译后的代码
         ├── node-portable/node.exe    ← 便携 Node.js
         └── node_modules/             ← 生产依赖
@@ -271,7 +272,7 @@ node-portable/         ← 便携版 Node.js 运行时
 1. 在 GitHub 仓库页面点击 "Releases" → "Create a new release"
 2. 将 `release/qiji-kanban/` 文件夹打包为 `.zip`
 3. 上传 zip 作为附件
-4. 用户下载 zip → 解压 → 双击 `nw.exe`
+4. 用户下载 zip → 解压 → 双击 `QijiKanbanSoftware.exe`
 
 ### 5.4 .gitignore 文件内容
 
@@ -296,7 +297,7 @@ Thumbs.db
 | `npm install` | 安装依赖（首次使用） | 项目根目录 |
 | `npm run build` | 编译前端和后端 | 项目根目录 |
 | `npm start` | 启动开发模式（浏览器预览） | 项目根目录 |
-| 双击 `nw.exe` | 启动桌面版软件 | release/qiji-kanban/ |
+| 双击 `QijiKanbanSoftware.exe` | 启动桌面版软件 | release/qiji-kanban/ |
 
 ---
 
@@ -304,7 +305,7 @@ Thumbs.db
 
 | 概念 | 通俗解释 | 对应文件/工具 |
 |------|---------|-------------|
-| NW.js | 把网页包成桌面窗口的程序 | `nw.exe` |
+| NW.js | 把网页包成桌面窗口的程序 | `QijiKanbanSoftware.exe` |
 | Express | 后端服务器，处理数据请求 | `src/server/index.ts` |
 | React | 前端界面框架 | `src/renderer/` |
 | Ant Design | 现成的按钮/表格/弹窗 | `antd` npm 包 |

@@ -54,12 +54,7 @@ const SettingsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     }
     const start = exportRange[0].format('YYYY-MM-DD');
     const end = exportRange[1].format('YYYY-MM-DD');
-    try {
-      await api.downloadExcel(start, end);
-      message.success('Excel 已导出');
-    } catch (e: any) {
-      message.error(e.message || '导出失败');
-    }
+    api.downloadCSV(start, end);
   };
 
   const handleDeleteAll = async () => {
@@ -144,7 +139,7 @@ const SettingsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           <div style={{ marginBottom: 12 }}>
             <RangePicker value={exportRange} onChange={(v) => setExportRange(v as any)} />
           </div>
-          <Button type="primary" onClick={handleExport} style={{ marginRight: 8 }}>导出为 Excel</Button>
+          <Button type="primary" onClick={handleExport} style={{ marginRight: 8 }}>导出为 CSV</Button>
           <Button onClick={() => { api.downloadBackup(); message.success('数据库备份下载已开始'); }}>
             导出完整数据库
           </Button>

@@ -12,24 +12,8 @@ data/
 
 # 二进制运行时
 node-portable/
-electron-runtime/
 
-# Electron 残留
-default_app_work/
-default_app_patched.asar
-src/main/
-src/preload/
-tsconfig.main.json
-tsconfig.preload.json
-test-electron.js
-
-# NW.js 调试文件
-test_bindings.js
-test_nw.html
-test_nw_package.json
-
-# 个人记录
-conversation-log.md
+# 个人记录（保留本地，不上传）
 MingRenMingYan.txt
 
 # IDE / 编辑器
@@ -43,9 +27,8 @@ Thumbs.db
 # 日志与临时文件
 *.log
 *.bak
-.claude/
-CLAUDE.md
-electron-builder.yml
+
+# 个人/草稿文件
 github-push-guide.md
 logo_qiji.jpg
 readme-draft.md

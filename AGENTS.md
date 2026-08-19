@@ -34,19 +34,18 @@
 1. **实机验证**：功能改动必须在 release 目录实际启动 QijiKanbanSoftware.exe 验证，**不能只用 curl 模拟**（curl 不执行页面 CSP，曾因此漏掉真实 bug）。
 2. **同步 release**：源码改完编译后，必须同步 `dist/`、`themes/`、`quit-handler.js`、NW 配置等到 `release/qiji-kanban/`，并核对哈希。
 3. **改动前报告**：涉及前端 UI、数据结构、依赖删除的操作，先报告等确认，不要自作主张。
-4. **不得删除 openai 包**（连接 DeepSeek 必需）；**不得盲目执行 npm audit fix**（`--force` 会把 exceljs 降级到 3.4.0，属破坏性变更）。
+4. **不得删除 openai 包**（连接 DeepSeek 必需）；**不得盲目执行 npm audit fix --force**（属破坏性变更）；npm audit 目标保持 0 漏洞（exceljs 已移除，导出功能为纯 CSV 实现）。
 5. **自动化测试**：`node-portable\node.exe test-api.js`，35 个用例必须全绿；测试自带数据库备份还原，无需人工干预。
 6. 常用命令：`npm run build`（tsc + webpack）、`npm start`（开发模式）、`npm install` 后需确认 test-api 全绿。
 
 ## 五、当前状态（V1.0.1）
 
 - 安全加固：仅监听 127.0.0.1、CORS 本机白名单、DeepSeek 密钥不落库（加密文件 + 进程内存解锁）、访问令牌防跨站盲请求
-- 已清理：Electron 全部残留、Claude Code 相关文件与表述、multer 等无用依赖
-- 已修复：NW.js 关窗后台残留（node-remote + 双保险退出）、设置页导出 Excel（带令牌 POST 下载）
-- 版本号已统一为 1.0.1（package.json、nw-package.json、关于页、changelog、文档）
+- 已清理：Electron 全部残留、Claude Code 相关文件与表述、multer/exceljs 等依赖；npm audit 0 漏洞
+- 已修复：NW.js 关窗后台残留（node-remote + 双保险退出）、设置页任务导出（CSV 下载）
+- 版本号已统一为 1.0.1（package.json、关于页、changelog、文档）；NW.js 配置以 package.json 为唯一来源
 
 ## 六、待办事项
 
-- 清理候选：`.gitignore` 中已失效的 Electron 忽略规则、`data/uploads/` 空目录、`readme-draft.md` 等个人/草稿文件（等确认）
-- npm audit 修复决策待定（见最近一次 audit 报告）
+- 个人/草稿文件保留现状：`readme-draft.md`、`MingRenMingYan.txt`、`logo_qiji.jpg`、`github-push-guide.md`（本地保留，不提交）
 - V1.1.0 方向（具体待定）：AI 优化（复盘 AI 总结等）、复盘数据可视化、THEMRPR 模板库、主题商店、跨平台支持
