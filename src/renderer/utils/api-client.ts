@@ -131,6 +131,10 @@ export const api = {
     request<{ value: string }>('POST', '/api/crypto/decrypt', { password }).then(r => r.value),
   hasApiKey: () =>
     request<{ exists: boolean }>('GET', '/api/crypto/has-key').then(r => r.exists),
+  getCryptoStatus: () =>
+    request<{ hasKey: boolean; unlocked: boolean }>('GET', '/api/crypto/status'),
+  getReportSummary: (since: string) =>
+    request<{ mainTasks: number; subTasks: number }>('GET', `/api/report/summary?since=${since}`),
 
   // Backup
   downloadBackup: () => {

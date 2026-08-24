@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ConfigProvider, theme, Layout } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
+import enUS from 'antd/locale/en_US';
 import dayjs from 'dayjs';
 import { api } from './utils/api-client';
 import { getTodayStr, getWeekDates, getWeekStart, formatDateWithWeek, getChineseWeekday } from './utils/date-utils';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { ModeProvider, useMode } from './context/ModeContext';
+import { LanguageProvider, useLang } from './context/LanguageContext';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import WelcomePage from './components/WelcomePage';
 import Sidebar from './components/layout/Sidebar';
@@ -39,7 +41,9 @@ export interface ProgressReport {
 const AppInner: React.FC = () => {
   const { theme: themeData } = useTheme();
   const { mode, loaded, initialized } = useMode();
+  const { lang } = useLang();
   const [locale] = useState(zhCN);
+  const antdLocale = lang === 'en' ? enUS : zhCN;
 
   // Date state
   const today = dayjs();
@@ -76,6 +80,7 @@ const AppInner: React.FC = () => {
   }, []);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState('skin');
   const [showAI, setShowAI] = useState(false);
   const [showRetrospect, setShowRetrospect] = useState(false);
   const [editingTask, setEditingTask] = useState<MainTask | null>(null);
@@ -100,39 +105,31 @@ const AppInner: React.FC = () => {
 
   useEffect(() => { if (viewMode === 'date') loadTasks(); }, [loadTasks, viewMode]);
 
-  // Daily summary check
-  const summaryTriggeredRef = React.useRef<string | null>(null);
+  // 启动战报：每次启动时在进展报告区追加一条摘要（无需任何定时触发）
   useEffect(() => {
-    const check = async () => {
-      const time = await api.getSetting('summary_time');
-      if (!time) return;
-      const now = dayjs();
-      const today = now.format('YYYY-MM-DD');
-      if (summaryTriggeredRef.current === today) return;
-      const currentTime = now.format('HH:mm');
-      if (currentTime === time) {
-        summaryTriggeredRef.current = today;
-        // Count today's completions
-        try {
-          const todayStart = today + 'T00:00:00.000Z';
-          const todayEnd = today + 'T23:59:59.999Z';
-          const reports = await api.getProgressReportsByDateRange(today, today);
-          const mainTasks = await api.getMainTasksByDate(selectedDate);
-          const completedMains = mainTasks.filter((t: any) => t.status === '已完成').length;
-          const subCount = reports.length;
-          const summary = `─── 📊 ${today} 战报 ───\n今日攻克 ${completedMains} 个主任务，共 ${subCount} 个子任务。\n辛苦了，朋友。你的每一步，都在让梦想更近。\n─────────────────────`;
-          // For display: the summary appears in the progress reports section
-          setProgressReports((prev: ProgressReport[]) => [{
-            id: Date.now(), sub_task_id: 0, main_task_id: 0,
-            report_text: summary, time_cost: '', created_at: new Date().toISOString(),
-          } as ProgressReport, ...prev]);
-        } catch(e) {}
-      }
-    };
-    const timer = setInterval(check, 60000); // Check every minute
-    check();
-    return () => clearInterval(timer);
-  }, [selectedDate]);
+    const timer = setTimeout(async () => {
+      try {
+        const last = await api.getSetting('last_report_date');
+        const today = dayjs().format('YYYY-MM-DD');
+        if (!last) {
+          await api.setSetting('last_report_date', today);
+          return;
+        }
+        if (last === today) return;
+        const stats = await api.getReportSummary(last);
+        const daysGap = dayjs(today).diff(dayjs(last), 'day');
+        const text = daysGap === 1
+          ? `昨日完成 ${stats.mainTasks} 个主任务，${stats.subTasks} 个子任务`
+          : `自上次打开以来，共完成 ${stats.mainTasks} 个主任务，${stats.subTasks} 个子任务`;
+        setProgressReports((prev: ProgressReport[]) => [{
+          id: Date.now(), sub_task_id: 0, main_task_id: 0,
+          report_text: text, time_cost: '', created_at: new Date().toISOString(),
+        } as ProgressReport, ...prev]);
+        await api.setSetting('last_report_date', today);
+      } catch (e) {}
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, []);
 
   const loadTaskDetail = useCallback(async (taskId: number) => {
     try {
@@ -281,11 +278,11 @@ const AppInner: React.FC = () => {
   };
 
   return (
-    <ConfigProvider locale={locale} theme={antdTheme}>
+    <ConfigProvider locale={antdLocale} theme={antdTheme}>
       {loaded && !initialized && <WelcomePage />}
       <Layout style={{ height: '100vh', backgroundColor: 'var(--color-bg-primary)' }}>
         <Sider width="3.125vw" style={{ backgroundColor: 'var(--color-bg-secondary)', minWidth: 40 }}>
-          <Sidebar viewMode={viewMode} onChangeView={handleChangeView} onOpenSettings={() => setShowSettings(true)} />
+          <Sidebar viewMode={viewMode} onChangeView={handleChangeView} onOpenSettings={() => { setSettingsTab('skin'); setShowSettings(true); }} />
         </Sider>
         <Content style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', backgroundColor: 'var(--color-bg-primary)' }}>
           <MainView
@@ -309,7 +306,9 @@ const AppInner: React.FC = () => {
             progressReports={progressReports}
             showTaskForm={showTaskForm} editingTask={editingTask} selectedDateForForm={selectedDate}
             onTaskFormSubmit={handleFormSubmit} onTaskFormCancel={() => { setShowTaskForm(false); setEditingTask(null); }}
-            showSettings={showSettings} onSettingsClose={() => setShowSettings(false)}
+            showSettings={showSettings} settingsTab={settingsTab}
+            onSettingsClose={() => setShowSettings(false)}
+            onOpenSettingsAtTab={(tab: string) => { setSettingsTab(tab); setShowSettings(true); }}
             showAI={showAI} onAIClose={() => setShowAI(false)} onAIResult={handleAIResult}
             selectedDateForAI={selectedDate}
             showRetrospect={showRetrospect} onRetrospectClose={() => setShowRetrospect(false)}
@@ -323,11 +322,13 @@ const AppInner: React.FC = () => {
 
 const App: React.FC = () => (
   <ErrorBoundary>
-    <ThemeProvider>
-      <ModeProvider>
-        <AppInner />
-      </ModeProvider>
-    </ThemeProvider>
+    <LanguageProvider>
+      <ThemeProvider>
+        <ModeProvider>
+          <AppInner />
+        </ModeProvider>
+      </ThemeProvider>
+    </LanguageProvider>
   </ErrorBoundary>
 );
 

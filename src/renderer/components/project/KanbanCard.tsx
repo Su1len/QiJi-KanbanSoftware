@@ -1,6 +1,7 @@
 import React from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { Progress } from 'antd';
+import { useLang } from '../../context/LanguageContext';
 import type { MainTask } from '../../App';
 
 const KanbanCard: React.FC<{
@@ -10,10 +11,13 @@ const KanbanCard: React.FC<{
   onEdit: (task: MainTask) => void;
 }> = ({ task, isSelected, onSelect, onEdit }) => {
   const { attributes, listeners, setNodeRef } = useDraggable({ id: `task-${task.id}` });
+  const { lang } = useLang();
   const subs = task.sub_tasks || [];
   const currentSub = subs.find(s => !['已完成', '已取消'].includes(s.status));
   const total = subs.length;
   const done = subs.filter(s => s.status === '已完成').length;
+  const noSubText = lang === 'en' ? 'No sub-tasks' : '无子任务';
+  const allDoneText = lang === 'en' ? 'All done' : '已全部完成';
 
   return (
     <div ref={setNodeRef} {...listeners} {...attributes}
@@ -31,7 +35,7 @@ const KanbanCard: React.FC<{
         {task.letter}. {task.name}
       </div>
       <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6 }}>
-        {currentSub ? currentSub.name : total > 0 ? '已全部完成' : '无子任务'}
+        {currentSub ? currentSub.name : total > 0 ? allDoneText : noSubText}
       </div>
       {total > 0 && (
         <Progress percent={Math.round((done / total) * 100)} size="small"

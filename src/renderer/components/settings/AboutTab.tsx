@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { Button, Collapse, Spin } from 'antd';
 import { HistoryOutlined } from '@ant-design/icons';
+import { useLang } from '../../context/LanguageContext';
 
 const VERSION = 'V1.0.1';
 
 const AboutTab: React.FC = () => {
+  const { t, tf, lang } = useLang();
   const [changelog, setChangelog] = useState<any[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -26,16 +28,16 @@ const AboutTab: React.FC = () => {
   return (
     <div style={{ textAlign: 'center', padding: '8px 0' }}>
       <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 4, color: 'var(--color-text-primary)' }}>
-        骐骥看板
+        {lang === 'en' ? 'Qiji Kanban' : '骐骥看板'}
       </div>
       <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 4 }}>
-        版本 {VERSION}
+        {tf('set.about.version', { v: VERSION })}
       </div>
       <div style={{ fontSize: 14, color: 'var(--color-text-primary)', margin: '12px 0' }}>
-        骐骥看板 —— 一款简洁高效的桌面任务管理工具
+        {t('set.about.desc')}
       </div>
       <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 16 }}>
-        开发者：桑尼之子 昭深
+        {t('set.about.dev')}
       </div>
 
       <div style={{
@@ -49,7 +51,7 @@ const AboutTab: React.FC = () => {
       </div>
 
       <Button icon={<HistoryOutlined />} onClick={loadChangelog} loading={loading}>
-        {expanded ? '收起更新日志' : '查看更新日志'}
+        {expanded ? t('set.about.logClose') : t('set.about.log')}
       </Button>
 
       {loading && <div style={{ marginTop: 12 }}><Spin size="small" /></div>}
@@ -58,7 +60,7 @@ const AboutTab: React.FC = () => {
         <div style={{ marginTop: 16, textAlign: 'left' }}>
           {changelog.length === 0 ? (
             <div style={{ color: 'var(--color-text-muted)', textAlign: 'center', fontSize: 13 }}>
-              暂无更新记录
+              {t('set.about.noLog')}
             </div>
           ) : (
             <Collapse

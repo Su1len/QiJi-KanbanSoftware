@@ -3,6 +3,8 @@ import { Modal, Tabs, Button, DatePicker, Input, message, Select, TimePicker, Sw
 import { api } from '../../utils/api-client';
 import { useTheme } from '../../context/ThemeContext';
 import { useMode } from '../../context/ModeContext';
+import { useLang } from '../../context/LanguageContext';
+import type { Lang } from '../../i18n';
 import AboutTab from '../settings/AboutTab';
 import RetroHistoryTab from '../settings/RetroHistoryTab';
 import HelpTab from '../settings/HelpTab';
@@ -10,10 +12,11 @@ import dayjs from 'dayjs';
 
 const { RangePicker } = DatePicker;
 
-const SettingsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+const SettingsDialog: React.FC<{ onClose: () => void; initialTab?: string }> = ({ onClose, initialTab }) => {
   const { themeName, setTheme, availableThemes, theme } = useTheme();
   const { mode, setMode } = useMode();
-  const [activeTab, setActiveTab] = useState('skin');
+  const { lang, setLang, t } = useLang();
+  const [activeTab, setActiveTab] = useState(initialTab || 'skin');
   const [selectedTheme, setSelectedTheme] = useState(themeName);
   const [exportRange, setExportRange] = useState<[any, any] | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState('');
@@ -23,7 +26,7 @@ const SettingsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [summaryTime, setSummaryTime] = useState<dayjs.Dayjs | null>(null);
 
   useEffect(() => {
-    api.hasApiKey().then(has => { if (has) setDecryptedKey('（已设置）'); });
+    api.hasApiKey().then(has => { if (has) setDecryptedKey(t('set.api.set')); });
     api.getSetting('summary_time').then(v => { if (v) setSummaryTime(dayjs(v, 'HH:mm')); });
   }, []);
 
@@ -34,22 +37,57 @@ const SettingsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     if (time) await api.setSetting('summary_time', time.format('HH:mm'));
   };
 
-  const handleThemeChange = async (t: string) => {
-    setSelectedTheme(t);
-    await setTheme(t);
-    // Fetch the theme JSON to get the actual display name (theme.themeName is stale after setTheme)
+  // 切换主题：检查目标主题是否支持当前语言
+  const handleThemeChange = async (themeKey: string) => {
     try {
-      const r = await fetch(`/themes/${t}/theme.json`);
+      const r = await fetch(`/themes/${themeKey}/theme.json`);
       const d = await r.json();
-      message.success(`已切换到"${d.themeName || t}"主题`);
+      const languages: string[] = Array.isArray(d.languages) ? d.languages : [];
+      if (languages.length > 0 && !languages.includes(lang)) {
+        Modal.confirm({
+          title: t('lang.themeNoSupport'),
+          content: null,
+          okText: t('common.save'),
+          cancelText: t('common.cancel'),
+          onOk: () => {},
+        });
+        return;
+      }
+      setSelectedTheme(themeKey);
+      await setTheme(themeKey);
+      message.success(t('set.skin.switched') + (d.themeName || themeKey));
     } catch {
-      message.success(`已切换到"${t}"主题`);
+      setSelectedTheme(themeKey);
+      await setTheme(themeKey);
     }
   };
 
-  const handleExport = async () => {
+  // 切换语言：检查当前主题是否支持目标语言
+  const handleLangChange = async (value: string) => {
+    const target = value as Lang;
+    if (target === lang) return;
+    const languages = theme.languages || [];
+    if (languages.length > 0 && !languages.includes(target)) {
+      Modal.confirm({
+        title: target === 'en' ? 'The current theme does not support this language. Switch back to the default theme?' : '当前皮肤不支持该语言，是否切换回默认皮肤？',
+        okText: target === 'en' ? 'Yes' : '是',
+        cancelText: target === 'en' ? 'No' : '否',
+        onOk: async () => {
+          await setTheme('light-gray');
+          await setLang(target);
+          message.success(target === 'en' ? 'Language switched' : '已切换语言');
+        },
+        onCancel: () => {},
+      });
+      return;
+    }
+    await setLang(target);
+    message.success(target === 'en' ? 'Language switched' : '已切换语言');
+  };
+
+  const handleExport = () => {
     if (!exportRange || !exportRange[0] || !exportRange[1]) {
-      message.warning('请选择日期范围');
+      message.warning(t('set.exportRangeWarn'));
       return;
     }
     const start = exportRange[0].format('YYYY-MM-DD');
@@ -58,26 +96,26 @@ const SettingsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   };
 
   const handleDeleteAll = async () => {
-    if (deleteConfirm !== '确认删除') {
-      message.warning('请输入"确认删除"');
+    if (deleteConfirm !== t('set.data.confirmWord')) {
+      message.warning(t('set.data.confirmPh'));
       return;
     }
     await api.deleteAllTasks();
-    message.success('所有任务已删除');
+    message.success(t('set.data.deleted'));
     setDeleteConfirm('');
   };
 
   const handleSaveApiKey = async () => {
-    if (!apiKey || !password) { message.warning('请填写 API 密钥和密码'); return; }
-    await api.setSetting('deepseek_api_key', apiKey);
+    if (!apiKey || !password) { message.warning(t('set.api.fillBoth')); return; }
     await api.encryptApiKey(apiKey, password);
-    message.success('API 密钥已保存');
+    message.success(t('set.api.saved'));
     setApiKey('');
     setPassword('');
+    setDecryptedKey(t('set.api.set'));
   };
 
   const handleDecryptKey = async () => {
-    if (!password) { message.warning('请输入密码'); return; }
+    if (!password) { message.warning(t('set.api.pwRequired')); return; }
     try {
       const val = await api.decryptApiKey(password);
       setDecryptedKey(val);
@@ -89,11 +127,11 @@ const SettingsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const tabs = [
     {
       key: 'skin',
-      label: '换肤',
+      label: t('set.tab.skin'),
       children: (
         <div>
           <p style={{ marginBottom: 12, color: 'var(--color-text-secondary)' }}>
-            选择主题后立即生效，无需重启。
+            {t('set.skin.desc')}
           </p>
           <Select
             value={selectedTheme}
@@ -103,79 +141,79 @@ const SettingsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           />
           <div style={{ marginTop: 16 }}>
             <p style={{ marginBottom: 8, color: 'var(--color-text-secondary)', fontSize: 13 }}>
-              操作模式
+              {t('set.lang')}
+            </p>
+            <Select
+              value={lang}
+              onChange={handleLangChange}
+              style={{ width: 200 }}
+              options={[
+                { value: 'zh', label: '中文' },
+                { value: 'en', label: 'English' },
+              ]}
+            />
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <p style={{ marginBottom: 8, color: 'var(--color-text-secondary)', fontSize: 13 }}>
+              {t('set.mode')}
             </p>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <Switch
                 checked={mode === 'full'}
                 onChange={(checked) => setMode(checked ? 'full' : 'simple')}
-                checkedChildren="详细" unCheckedChildren="简易"
+                checkedChildren={t('set.mode.full')} unCheckedChildren={t('set.mode.simple')}
               />
               <span style={{ color: 'var(--color-text-secondary)', fontSize: 13 }}>
-                {mode === 'full' ? '详细模式：显示所有字段和子任务功能' : '简易模式：隐藏复杂字段，只关注核心任务'}
+                {mode === 'full' ? t('set.mode.fullDesc') : t('set.mode.simpleDesc')}
               </span>
             </div>
-          </div>
-          <div style={{ marginTop: 16 }}>
-            <p style={{ marginBottom: 8, color: 'var(--color-text-secondary)', fontSize: 13 }}>
-              每日总结时间（到点自动生成战报）
-            </p>
-            <TimePicker
-              value={summaryTime}
-              onChange={handleSummaryTimeChange}
-              format="HH:mm"
-              placeholder="选择时间"
-              style={{ width: 160 }}
-            />
           </div>
         </div>
       ),
     },
     {
       key: 'export',
-      label: '导出任务',
+      label: t('set.tab.export'),
       children: (
         <div>
           <div style={{ marginBottom: 12 }}>
             <RangePicker value={exportRange} onChange={(v) => setExportRange(v as any)} />
           </div>
-          <Button type="primary" onClick={handleExport} style={{ marginRight: 8 }}>导出为 CSV</Button>
-          <Button onClick={() => { api.downloadBackup(); message.success('数据库备份下载已开始'); }}>
-            导出完整数据库
-          </Button>
+          <Button type="primary" onClick={handleExport} style={{ marginRight: 8 }}>{t('set.exportCsv')}</Button>
+          <Button onClick={() => { api.downloadBackup(); }}>{t('set.exportDb')}</Button>
         </div>
       ),
     },
     {
       key: 'data',
-      label: '数据管理',
+      label: t('set.tab.data'),
       children: (
         <div>
           <p style={{ color: '#ff4d4f', marginBottom: 12 }}>
-            此操作将删除软件内所有历史任务数据，不可恢复。
+            {t('set.data.warn')}
           </p>
           <Input
-            placeholder='请输入"确认删除"'
+            placeholder={t('set.data.confirmPh')}
             value={deleteConfirm}
             onChange={e => setDeleteConfirm(e.target.value)}
             style={{ width: 240, marginRight: 8 }}
           />
-          <Button danger onClick={handleDeleteAll}>一键删除所有任务</Button>
+          <Button danger onClick={handleDeleteAll}>{t('set.data.deleteAll')}</Button>
 
           <div style={{ marginTop: 24, padding: '12px 0', borderTop: '1px solid var(--color-border)' }}>
-            <p style={{ marginBottom: 8, fontWeight: 500 }}>导入备份</p>
+            <p style={{ marginBottom: 8, fontWeight: 500 }}>{t('set.data.importTitle')}</p>
             <p style={{ color: '#ff4d4f', fontSize: 13, marginBottom: 8 }}>
-              导入将覆盖当前所有数据，此操作不可撤销。
+              {t('set.data.importWarn')}
             </p>
             <input type="file" accept=".db" style={{ marginBottom: 8, display: 'block' }}
               onChange={async (e) => {
                 const file = e.target.files?.[0];
                 if (!file) return;
-                if (!confirm('导入将覆盖当前所有数据，此操作不可撤销。确定继续？')) { e.target.value = ''; return; }
+                if (!confirm(t('set.data.importWarn'))) { e.target.value = ''; return; }
                 try {
                   const result = await api.uploadBackup(file);
                   if (result.success) {
-                    message.success('数据已恢复，请重启应用');
+                    message.success(t('set.data.imported'));
                   } else {
                     message.error(result.error || '导入失败');
                   }
@@ -189,34 +227,34 @@ const SettingsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     },
     {
       key: 'api',
-      label: 'API 密钥管理',
+      label: t('set.tab.api'),
       children: (
         <div>
           <div style={{ marginBottom: 12 }}>
-            <label style={{ display: 'block', marginBottom: 4 }}>DeepSeek API 密钥</label>
+            <label style={{ display: 'block', marginBottom: 4 }}>{t('set.api.key')}</label>
             <Input.Password
-              placeholder="请输入 API 密钥"
+              placeholder={t('set.api.keyPh')}
               value={apiKey}
               onChange={e => setApiKey(e.target.value)}
               style={{ width: 300, marginBottom: 8 }}
             />
-            <label style={{ display: 'block', marginBottom: 4 }}>设置访问密码</label>
+            <label style={{ display: 'block', marginBottom: 4 }}>{t('set.api.pw')}</label>
             <Input.Password
-              placeholder="请设置一个访问密码"
+              placeholder={t('set.api.pwPh')}
               value={password}
               onChange={e => setPassword(e.target.value)}
               style={{ width: 300 }}
             />
             <Button onClick={handleSaveApiKey} style={{ marginTop: 8, marginRight: 8 }}>
-              保存
+              {t('set.api.save')}
             </Button>
             <Button onClick={handleDecryptKey} style={{ marginTop: 8 }}>
-              查看/修改
+              {t('set.api.view')}
             </Button>
           </div>
           {decryptedKey && (
             <div style={{ padding: 8, backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: 6 }}>
-              当前密钥：{decryptedKey}
+              {t('set.api.current')}{decryptedKey}
             </div>
           )}
         </div>
@@ -224,23 +262,23 @@ const SettingsDialog: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     },
     {
       key: 'retrohistory',
-      label: '复盘记录',
+      label: t('set.tab.retro'),
       children: <RetroHistoryTab />,
     },
     {
       key: 'help',
-      label: '使用帮助',
+      label: t('set.tab.help'),
       children: <HelpTab />,
     },
     {
       key: 'about',
-      label: '关于骐骥',
+      label: t('set.tab.about'),
       children: <AboutTab />,
     },
   ];
 
   return (
-    <Modal open onCancel={onClose} footer={null} width={750} title="设置">
+    <Modal open onCancel={onClose} footer={null} width={750} title={t('set.title')}>
       <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabs} />
     </Modal>
   );

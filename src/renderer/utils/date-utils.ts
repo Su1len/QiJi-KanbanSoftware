@@ -18,14 +18,17 @@ export function getSimpleWeekNumber(date: dayjs.Dayjs): number {
 }
 
 /**
- * Format date as "YYYY年 第WW周 MM月DD日"
+ * Format date as "YYYY年 第WW周 MM月DD日"（中文）或 "YYYY Week WW MM/DD"（英文）
  */
-export function formatDateWithWeek(date: dayjs.Dayjs): string {
+export function formatDateWithWeek(date: dayjs.Dayjs, lang?: 'zh' | 'en'): string {
   const year = date.year();
   const week = getSimpleWeekNumber(date);
-  const month = date.month() + 1;
-  const day = date.date();
-  return `${year}年 第${String(week).padStart(2, '0')}周 ${String(month).padStart(2, '0')}月${String(day).padStart(2, '0')}日`;
+  const month = String(date.month() + 1).padStart(2, '0');
+  const day = String(date.date()).padStart(2, '0');
+  if (lang === 'en') {
+    return `${year} Week ${String(week).padStart(2, '0')} ${month}/${day}`;
+  }
+  return `${year}年 第${String(week).padStart(2, '0')}周 ${month}月${day}日`;
 }
 
 /**

@@ -4,8 +4,9 @@ export interface SubTaskNode {
   nextIndex?: number | null;
 }
 
-export function buildChainGraph(subTasks: SubTaskNode[]): string {
+export function buildChainGraph(subTasks: SubTaskNode[], lang: 'zh' | 'en' = 'zh'): string {
   if (!subTasks || subTasks.length === 0) return '';
+  const isoLabel = lang === 'en' ? ' (independent)' : '（独立子任务）';
 
   const indexed = subTasks.map((s, i) => ({ ...s, _idx: i }));
   // Find which indices are pointed to
@@ -41,7 +42,7 @@ export function buildChainGraph(subTasks: SubTaskNode[]): string {
   // Add isolated nodes
   for (const iso of isolated) {
     if (!visited.has(iso._idx)) {
-      lines.push(`${iso.name}（独立子任务）`);
+      lines.push(`${iso.name}${isoLabel}`);
       visited.add(iso._idx);
     }
   }

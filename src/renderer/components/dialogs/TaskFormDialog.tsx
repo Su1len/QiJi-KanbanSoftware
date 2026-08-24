@@ -3,19 +3,21 @@ import { Modal, Form, Input, Select, Button, Row, Col, InputNumber, Tooltip, Aut
 import { PlusOutlined, DeleteOutlined, QuestionCircleOutlined, DownOutlined, RightOutlined } from '@ant-design/icons';
 import type { MainTask } from '../../App';
 import type { AppMode } from '../../context/ModeContext';
+import { useLang } from '../../context/LanguageContext';
+import { statusText } from '../../i18n';
 import { buildChainGraph } from '../../utils/graph-utils';
 import { api } from '../../utils/api-client';
 
 const { TextArea } = Input;
 
 const THEMRPR_FIELDS = [
-  { key: 'purpose', label: '目标', tooltip: '这项任务最终要达成什么？' },
-  { key: 'resources', label: '资源', tooltip: '完成这项任务需要哪些人、财、物？' },
-  { key: 'duration', label: '工期', tooltip: '预计需要多少天完成？只能输入整数。', type: 'number' },
-  { key: 'effect', label: '预期效果', tooltip: '完成后预期看到什么成果？' },
-  { key: 'hints', label: '注意要点', tooltip: '执行过程中需要特别注意什么？' },
-  { key: 'approach', label: '实现路径', tooltip: '具体怎么一步步完成？' },
-  { key: 'relevants', label: '相关方及接洽人', tooltip: '需要和谁协作、向谁汇报？' },
+  { key: 'purpose', labelKey: 'field.purpose', tooltipKey: 'field.purpose.tip' },
+  { key: 'resources', labelKey: 'field.resources', tooltipKey: 'field.resources.tip' },
+  { key: 'duration', labelKey: 'field.duration', tooltipKey: 'field.duration.tip', type: 'number' },
+  { key: 'effect', labelKey: 'field.effect', tooltipKey: 'field.effect.tip' },
+  { key: 'hints', labelKey: 'field.hints', tooltipKey: 'field.hints.tip' },
+  { key: 'approach', labelKey: 'field.approach', tooltipKey: 'field.approach.tip' },
+  { key: 'relevants', labelKey: 'field.relevants', tooltipKey: 'field.relevants.tip' },
 ];
 
 interface SubTaskFormItem {
@@ -33,12 +35,7 @@ interface SubTaskFormItem {
   status?: string;
 }
 
-const STATUS_OPTIONS = [
-  { value: '进行中', label: '进行中' },
-  { value: '暂搁置', label: '暂搁置' },
-  { value: '已取消', label: '已取消' },
-  { value: '已完成', label: '已完成' },
-];
+const STATUS_VALUES = ['进行中', '暂搁置', '已取消', '已完成'];
 
 const TaskFormDialog: React.FC<{
   mode: AppMode;
@@ -50,8 +47,11 @@ const TaskFormDialog: React.FC<{
   titleExtra?: string;
 }> = ({ mode, task, selectedDate, onSubmit, onCancel, initialData, titleExtra }) => {
   const [form] = Form.useForm();
+  const { t, lang } = useLang();
   const [subTasks, setSubTasks] = useState<SubTaskFormItem[]>([]);
   const [projectOptions, setProjectOptions] = useState<{ value: string }[]>([]);
+
+  const statusOptions = STATUS_VALUES.map(v => ({ value: v, label: statusText(v, lang) }));
 
   useEffect(() => {
     if (task) {
@@ -109,7 +109,7 @@ const TaskFormDialog: React.FC<{
     if (mode === 'full' && values.project_name) {
       try {
         const cnt = await api.countTasksInProject(values.project_name);
-        if (cnt >= 50) { message.warning('此项目内的主任务数量已达上限（50个），请考虑调整任务或新建项目'); return; }
+        if (cnt >= 50) { message.warning(lang === 'en' ? 'This project has reached the limit of 50 main tasks.' : '此项目内的主任务数量已达上限（50个），请考虑调整任务或新建项目'); return; }
       } catch {}
     }
     onSubmit({
@@ -141,23 +141,23 @@ const TaskFormDialog: React.FC<{
 
   return (
     <Modal
-      title={titleExtra || (task ? '编辑任务' : '新建主任务')}
+      title={titleExtra || (task ? t('form.editTask') : t('form.newMainTask'))}
       open
       onOk={handleSubmit}
       onCancel={onCancel}
       width={720}
-      okText="保存"
-      cancelText="取消"
+      okText={t('common.save')}
+      cancelText={t('common.cancel')}
     >
       <Form form={form} layout="vertical" size="small">
         <Row gutter={16}>
           <Col span={8}>
-            <Form.Item name="name" label="任务名称" rules={[{ required: true, message: '请输入任务名称' }]}>
-              <Input placeholder="例如：完成竞品分析报告" />
+            <Form.Item name="name" label={t('form.name')} rules={[{ required: true, message: t('form.name.required') }]}>
+              <Input placeholder={t('form.name.ph')} />
             </Form.Item>
           </Col>
           <Col span={6}>
-            <Form.Item name="project_name" label="项目名称">
+            <Form.Item name="project_name" label={t('form.project')}>
               <AutoComplete
                 options={projectOptions}
                 onFocus={async () => {
@@ -166,24 +166,24 @@ const TaskFormDialog: React.FC<{
                     setProjectOptions(names.map((n: string) => ({ value: n })));
                   } catch {}
                 }}
-                placeholder="例如：Q3产品迭代、竞品调研"
+                placeholder={t('form.project.ph')}
               />
             </Form.Item>
           </Col>
           <Col span={5}>
-            <Form.Item name="status" label="任务状态" initialValue="进行中">
-              <Select options={STATUS_OPTIONS} />
+            <Form.Item name="status" label={t('form.status')} initialValue="进行中">
+              <Select options={statusOptions} />
             </Form.Item>
           </Col>
           <Col span={5}>
-            <Form.Item name="priority" label="优先级" initialValue={0}>
+            <Form.Item name="priority" label={t('form.priority')} initialValue={0}>
               <InputNumber min={0} max={10} style={{ width: '100%' }} placeholder="0-10" />
             </Form.Item>
           </Col>
         </Row>
 
-        <Form.Item name="content" label="事务具体内容与执行情况评估">
-          <TextArea rows={2} placeholder="例如：于14:00前将报告提交至张总邮箱" />
+        <Form.Item name="content" label={t('form.content')}>
+          <TextArea rows={2} placeholder={t('form.content.ph')} />
         </Form.Item>
 
         {mode === 'full' && (
@@ -191,15 +191,15 @@ const TaskFormDialog: React.FC<{
             {THEMRPR_FIELDS.map(f => (
               <Col span={12} key={f.key}>
                 <Form.Item name={f.key} label={
-                  <span>{f.label}
-                    <Tooltip title={f.tooltip}>
+                  <span>{t(f.labelKey)}
+                    <Tooltip title={t(f.tooltipKey)}>
                       <QuestionCircleOutlined style={{ marginLeft: 6, color: 'var(--color-text-secondary)', fontSize: 12 }} />
                     </Tooltip>
                   </span>
                 }>
                   {f.key === 'duration'
-                    ? <InputNumber style={{ width: '100%' }} placeholder="整数天数" />
-                    : <Input placeholder={f.label} />
+                    ? <InputNumber style={{ width: '100%' }} placeholder={lang === 'en' ? 'Days' : '整数天数'} />
+                    : <Input placeholder={t(f.labelKey)} />
                   }
                 </Form.Item>
               </Col>
@@ -211,15 +211,15 @@ const TaskFormDialog: React.FC<{
         {mode === 'full' && (
           <>
             <div style={{ marginBottom: 8 }}>
-              <span style={{ fontSize: 14, fontWeight: 500 }}>子任务</span>
+              <span style={{ fontSize: 14, fontWeight: 500 }}>{t('form.subtasks')}</span>
               <Button type="dashed" size="small" icon={<PlusOutlined />} onClick={addSubTask} style={{ marginLeft: 8 }}>
-                添加
+                {t('form.addSub')}
               </Button>
             </div>
             <div style={{ marginBottom: 4, fontSize: 12, color: 'var(--color-text-secondary)', display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ width: 24 }} />
-              <span style={{ flex: 1 }}>名称</span>
-              <span style={{ width: 130 }}>后序</span>
+              <span style={{ flex: 1 }}>{t('form.name')}</span>
+              <span style={{ width: 130 }}>{t('col.next')}</span>
               <span style={{ width: 32 }} />
             </div>
             {subTasks.map((st, i) => (
@@ -232,18 +232,18 @@ const TaskFormDialog: React.FC<{
                   <Col flex="auto">
                     <Input size="small" value={st.name}
                       onChange={e => updateSubTask(i, { name: e.target.value })}
-                      placeholder="例如：收集A公司财报" />
+                      placeholder={t('form.subName.ph')} />
                   </Col>
                   <Col style={{ width: 130 }}>
                     <Select
                       size="small"
-                      placeholder="无"
+                      placeholder={t('common.none')}
                       allowClear
                       style={{ width: '100%' }}
                       value={st.nextIndex ?? undefined}
                       onChange={(val) => updateSubTask(i, { nextIndex: val ?? null })}
                       options={subTasks
-                        .map((s, idx) => ({ value: idx, label: s.name.trim() || '（未命名）' }))
+                        .map((s, idx) => ({ value: idx, label: s.name.trim() || (lang === 'en' ? '(Unnamed)' : '（未命名）') }))
                         .filter(opt => {
                           if (opt.value === i) return false;
                           if (wouldCreateCycle(i, opt.value)) return false;
@@ -263,35 +263,35 @@ const TaskFormDialog: React.FC<{
                     background: 'var(--color-bg-hover)', borderRadius: 6,
                   }}>
                     <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginBottom: 6 }}>
-                      子任务独立字段（留空则继承主任务的值）
+                      {t('form.subIndep')}
                     </div>
                     <Row gutter={12}>
                       {THEMRPR_FIELDS.map(f => (
                         <Col span={12} key={f.key}>
                           <div style={{ marginBottom: 6 }}>
                             <div style={{ fontSize: 12, marginBottom: 2, color: 'var(--color-text-secondary)' }}>
-                              {f.label}
-                              <Tooltip title={f.tooltip}>
+                              {t(f.labelKey)}
+                              <Tooltip title={t(f.tooltipKey)}>
                                 <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 11 }} />
                               </Tooltip>
                             </div>
                             <Input size="small"
                               value={(st as any)[f.key] || ''}
                               onChange={e => updateSubTask(i, { [f.key]: e.target.value })}
-                              placeholder={f.label}
+                              placeholder={t(f.labelKey)}
                             />
                           </div>
                         </Col>
                       ))}
                       <Col span={12}>
                         <div style={{ marginBottom: 6 }}>
-                          <div style={{ fontSize: 12, marginBottom: 2, color: 'var(--color-text-secondary)' }}>状态</div>
+                          <div style={{ fontSize: 12, marginBottom: 2, color: 'var(--color-text-secondary)' }}>{t('form.status')}</div>
                           <Select size="small" style={{ width: '100%' }}
                             value={st.status || undefined}
                             onChange={v => updateSubTask(i, { status: v ?? '' })}
                             allowClear
-                            placeholder="继承主任务"
-                            options={STATUS_OPTIONS}
+                            placeholder={t('form.inherit')}
+                            options={statusOptions}
                           />
                         </div>
                       </Col>
@@ -306,13 +306,13 @@ const TaskFormDialog: React.FC<{
               <div style={{ marginTop: 12, padding: '10px 12px', background: 'var(--color-bg-hover)', borderRadius: 6 }}>
                 <details open>
                   <summary style={{ fontSize: 13, fontWeight: 500, cursor: 'pointer', marginBottom: 8 }}>
-                    任务结构图
+                    {t('form.chainGraph')}
                   </summary>
                   <pre style={{
                     margin: 0, fontSize: 13, fontFamily: 'Consolas, "Microsoft YaHei", monospace',
                     color: 'var(--color-text-primary)', lineHeight: 2, whiteSpace: 'pre-wrap',
                   }}>
-                    {buildChainGraph(subTasks.filter(s => s.name.trim()))}
+                    {buildChainGraph(subTasks.filter(s => s.name.trim()), lang)}
                   </pre>
                 </details>
               </div>

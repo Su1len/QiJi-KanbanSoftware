@@ -3,7 +3,6 @@
   "themeAuthor": "骐骥官方",
   "version": "1.0.0",
   "darkMode": true,
-
   "colorScheme": {
     "bgPrimary": "#2e1d1a",
     "bgSecondary": "#291916",
@@ -20,16 +19,31 @@
     "danger": "#ff4d4f",
     "info": "#ff8c4f"
   },
-
   "fontOverrides": {
     "titleFont": "\"Microsoft YaHei\", \"PingFang SC\", sans-serif",
     "bodyFont": "\"Microsoft YaHei\", \"PingFang SC\", sans-serif"
   },
-
   "textOverrides": {
+    "newTaskButton-zh": "新建主任务",
+    "newTaskButton-en": "Create a task",
+    "deleteTaskButton-zh": "删除",
+    "deleteTaskButton-en": "Delete",
+    "aiAssistantButton-zh": "AI助理",
+    "aiAssistantButton-en": "AI Assistant",
+    "nextSubTaskButton-zh": "下一子任务",
+    "nextSubTaskButton-en": "Next sub-task",
+    "completeButton-zh": "完成",
+    "completeButton-en": "Complete",
+    "cancelButton-zh": "放弃",
+    "cancelButton-en": "Abandon",
+    "currentMainTask-zh": "当前主任务",
+    "currentMainTask-en": "Current main task",
+    "currentSubTask-zh": "当前子任务",
+    "currentSubTask-en": "Current sub-task",
+    "currentHints-zh": "当前任务要点",
+    "currentHints-en": "Current key hints",
     "appTitle": "骐骥看板 - 暖阳"
   },
-
   "imageOverrides": [
     {
       "targetComponent": "KanbanBoard",
@@ -39,5 +53,10 @@
       "position": "center",
       "size": "cover"
     }
-  ]
+  ],
+  "languages": [
+    "zh",
+    "en"
+  ],
+  "themeNameEn": "Warm Orange"
 }

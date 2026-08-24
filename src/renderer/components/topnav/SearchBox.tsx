@@ -1,14 +1,19 @@
 import React, { useState } from 'react';
 import { AutoComplete, Input, Modal } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
+import { useLang } from '../../context/LanguageContext';
 
 const SearchBox: React.FC<{
   viewMode: 'date' | 'project';
   onNavigateToDate: (date: string, switchView?: boolean) => void;
   onNavigateToProject: (projectName: string) => void;
 }> = ({ viewMode, onNavigateToDate, onNavigateToProject }) => {
+  const { lang } = useLang();
   const [options, setOptions] = useState<{ value: string; label: React.ReactNode }[]>([]);
   const [value, setValue] = useState('');
+  const noProjectText = lang === 'en' ? '· No project' : '· 无项目';
+  const notFoundText = lang === 'en' ? 'No results' : '无匹配结果';
+  const ph = lang === 'en' ? 'Search tasks across all dates...' : '搜索所有日期的任务...';
 
   const handleSearch = async (keyword: string) => {
     setValue(keyword);
@@ -27,7 +32,7 @@ const SearchBox: React.FC<{
           label: (<div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
             <span>{t.name}</span>
             <span style={{ color: 'var(--color-text-muted)', fontSize: 11 }}>
-              {t.task_date} {t.project_name ? `· ${t.project_name}` : '· 无项目'}
+              {t.task_date} {t.project_name ? `· ${t.project_name}` : noProjectText}
             </span>
           </div>),
         };
@@ -43,8 +48,10 @@ const SearchBox: React.FC<{
         onNavigateToProject(projectName);
       } else {
         Modal.confirm({
-          title: '切换视图',
-          content: '该任务只存在于时间视图中，是否切换回时间视图？',
+          title: lang === 'en' ? 'Switch View' : '切换视图',
+          content: lang === 'en' ? 'This task only exists in the date view. Switch back to the date view?' : '该任务只存在于时间视图中，是否切换回时间视图？',
+          okText: lang === 'en' ? 'OK' : '确定',
+          cancelText: lang === 'en' ? 'Cancel' : '取消',
           onOk: () => { setValue(''); setOptions([]); onNavigateToDate(jumpDate, true); },
           onCancel: () => { setValue(''); setOptions([]); },
         });
@@ -59,9 +66,9 @@ const SearchBox: React.FC<{
     <div style={{ display: 'flex', justifyContent: 'center', padding: '12px 0' }}>
       <AutoComplete value={value} options={options} onSearch={handleSearch}
         onSelect={handleSelect as any} style={{ width: 360 }}
-        notFoundContent={value.trim() ? '无匹配结果' : null}
+        notFoundContent={value.trim() ? notFoundText : null}
       >
-        <Input placeholder="搜索所有日期的任务..." prefix={<SearchOutlined />}
+        <Input placeholder={ph} prefix={<SearchOutlined />}
           style={{ borderRadius: 20 }} allowClear />
       </AutoComplete>
     </div>

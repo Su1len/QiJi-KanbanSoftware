@@ -1,15 +1,17 @@
 import React from 'react';
 import { Button } from 'antd';
 import dayjs from 'dayjs';
-
-const LABELS = ['一', '二', '三', '四', '五', '六', '日'];
+import { useLang } from '../../context/LanguageContext';
 
 const WeekdaySelector: React.FC<{
   weekDates: dayjs.Dayjs[];
   selectedWeekday: number;
   selectedDate: string;
   onSelect: (date: string, weekday: number) => void;
-}> = ({ weekDates, selectedWeekday, selectedDate, onSelect }) => (
+}> = ({ weekDates, selectedWeekday, selectedDate, onSelect }) => {
+  const { t, lang } = useLang();
+  const labels = lang === 'en' ? ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] : ['一', '二', '三', '四', '五', '六', '日'];
+  return (
   <div style={{ display: 'flex', justifyContent: 'center', gap: 4, padding: '4px 0 8px' }}>
     {weekDates.map((d, i) => {
       const dateStr = d.format('YYYY-MM-DD');
@@ -26,11 +28,12 @@ const WeekdaySelector: React.FC<{
             fontWeight: isToday ? 700 : 400,
           }}
         >
-          {LABELS[i]}
+          {labels[i]}
         </Button>
       );
     })}
   </div>
-);
+  );
+};
 
 export default WeekdaySelector;

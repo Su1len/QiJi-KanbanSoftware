@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { api } from '../utils/api-client';
+import { currentLang } from './LanguageContext';
+import { useLang } from './LanguageContext';
 
 export interface ColorScheme {
   bgPrimary: string; bgSecondary: string; bgCard: string; bgHover: string;
@@ -26,9 +28,11 @@ export interface ImageOverride {
 
 export interface ThemeDefinition {
   themeName: string;
+  themeNameEn?: string;
   themeAuthor: string;
   version: string;
   darkMode: boolean;
+  languages?: string[];
   colorScheme: ColorScheme;
   fontOverrides: FontOverrides;
   textOverrides: Record<string, string>;
@@ -36,18 +40,18 @@ export interface ThemeDefinition {
 }
 
 const DEFAULT_THEME: ThemeDefinition = {
-  themeName: '深蓝',
+  themeName: '浅灰',
   themeAuthor: '骐骥官方',
   version: '1.0.0',
-  darkMode: true,
+  darkMode: false,
   colorScheme: {
-    bgPrimary: '#1a1d2e', bgSecondary: '#161929', bgCard: '#242840', bgHover: '#2a2f4a',
-    accent: '#4f8cff', accentHover: '#6ba1ff',
-    textPrimary: '#e8eaf0', textSecondary: '#8a8fa8', textMuted: '#5a5f78',
-    border: '#2e334d',
-    success: '#52c41a', warning: '#faad14', danger: '#ff4d4f', info: '#4f8cff',
+    bgPrimary: '#f5f5f5', bgSecondary: '#e8e8e8', bgCard: '#ffffff', bgHover: '#f0f0f0',
+    accent: '#1890ff', accentHover: '#40a9ff',
+    textPrimary: '#1a1a1a', textSecondary: '#8c8c8c', textMuted: '#bfbfbf',
+    border: '#d9d9d9',
+    success: '#52c41a', warning: '#faad14', danger: '#ff4d4f', info: '#1890ff',
   },
-  fontOverrides: { titleFont: '"Microsoft YaHei", sans-serif', bodyFont: '"Microsoft YaHei", sans-serif' },
+  fontOverrides: { titleFont: '"Microsoft YaHei", "PingFang SC", sans-serif', bodyFont: '"Microsoft YaHei", "PingFang SC", sans-serif' },
   textOverrides: {},
   imageOverrides: [],
 };
@@ -67,9 +71,9 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType>({
   theme: DEFAULT_THEME,
-  themeName: 'dark-blue',
+  themeName: 'light-gray',
   setTheme: async () => {},
-  availableThemes: [{ key: 'dark-blue', name: '深蓝' }],
+  availableThemes: [{ key: 'light-gray', name: '浅灰' }],
   t: (_k, d) => d,
 });
 
@@ -170,9 +174,11 @@ function validateTheme(raw: any, name: string): ThemeDefinition {
 
   return {
     themeName:    raw.themeName    || name,
+    themeNameEn:  raw.themeNameEn  || undefined,
     themeAuthor:  raw.themeAuthor  || '未知',
     version:      raw.version      || '1.0.0',
     darkMode:     typeof raw.darkMode === 'boolean' ? raw.darkMode : true,
+    languages:    Array.isArray(raw.languages) ? raw.languages : undefined,
     colorScheme,
     fontOverrides,
     textOverrides: raw.textOverrides && typeof raw.textOverrides === 'object' ? raw.textOverrides : {},
@@ -193,12 +199,13 @@ async function loadTheme(name: string): Promise<ThemeDefinition> {
 }
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { lang } = useLang();
   const [theme, setThemeState] = useState<ThemeDefinition>(DEFAULT_THEME);
-  const [themeName, setThemeName] = useState<string>('dark-blue');
-  const [availableThemes, setAvailableThemes] = useState<ThemeEntry[]>([{ key: 'dark-blue', name: '深蓝' }]);
+  const [themeName, setThemeName] = useState<string>('light-gray');
+  const [availableThemes, setAvailableThemes] = useState<ThemeEntry[]>([{ key: 'light-gray', name: '浅灰' }]);
   const [loaded, setLoaded] = useState(false);
 
-  // Load available themes list on startup (scans themes/ directory)
+  // Load available themes list (reloads on language change so names match the UI language)
   useEffect(() => {
     fetch('/api/themes')
       .then(r => r.json())
@@ -211,7 +218,8 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             const r = await fetch(`/themes/${key}/theme.json`);
             if (r.ok) {
               const d = await r.json();
-              entries.push({ key, name: d.themeName || key });
+              const displayName = (lang === 'en' && d.themeNameEn) ? d.themeNameEn : (d.themeName || key);
+              entries.push({ key, name: displayName });
             } else {
               entries.push({ key, name: key });
             }
@@ -222,13 +230,20 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setAvailableThemes(entries);
       })
       .catch(() => {});
-  }, []);
+  }, [lang]);
 
   useEffect(() => {
     (async () => {
       const saved = await api.getSetting('theme');
-      const name = saved || 'dark-blue';
-      const def = await loadTheme(name);
+      // 默认主题为浅灰；用户已保存的主题偏好保持不变
+      let name = saved || 'light-gray';
+      let def = await loadTheme(name);
+      // 启动校验：当前皮肤不支持当前语言时，自动切回默认皮肤（浅灰）
+      if (def.languages && def.languages.length > 0 && !def.languages.includes(currentLang)) {
+        name = 'light-gray';
+        def = await loadTheme(name);
+        await api.setSetting('theme', name);
+      }
       setThemeState(def);
       setThemeName(name);
       applyColorScheme(def.colorScheme);
@@ -245,7 +260,9 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }, []);
 
   const t = useCallback((key: string, defaultText: string): string => {
-    return theme.textOverrides[key] || defaultText;
+    // 多语言文案覆盖：theme.json 中以 "key-zh" / "key-en" 形式提供
+    const override = theme.textOverrides[key + '-' + currentLang];
+    return override || defaultText;
   }, [theme.textOverrides]);
 
   if (!loaded) return <>{children}</>; // Render children with default theme while loading

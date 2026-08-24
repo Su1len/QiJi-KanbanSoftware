@@ -109,6 +109,9 @@ export function initDatabase(): void {
   // Migration: project fields
   try { db.exec('ALTER TABLE main_tasks ADD COLUMN project_name TEXT'); } catch(e) {}
   try { db.exec('ALTER TABLE main_tasks ADD COLUMN project_pinned INTEGER DEFAULT 0'); } catch(e) {}
+  // Migration: status change timestamps (V1.0.1, backward compatible)
+  try { db.exec('ALTER TABLE main_tasks ADD COLUMN status_changed_at TEXT'); } catch(e) {}
+  try { db.exec('ALTER TABLE sub_tasks ADD COLUMN status_changed_at TEXT'); } catch(e) {}
 }
 
 function now(): string {
@@ -261,6 +264,11 @@ export function updateMainTask(id: number, data: any) {
         values[key] = value;
       }
     }
+    // 状态变更时间戳（V1.0.1）
+    if (data.status !== undefined) {
+      fields.push('status_changed_at = @status_changed_at');
+      values.status_changed_at = now();
+    }
     if (fields.length > 0) {
       fields.push('updated_at = @updated_at');
       values.updated_at = now();
@@ -355,6 +363,11 @@ export function updateSubTask(id: number, data: any) {
       values[key] = value;
     }
   }
+  // 状态变更时间戳（V1.0.1）
+  if (data.status !== undefined) {
+    fields.push('status_changed_at = @status_changed_at');
+    values.status_changed_at = now();
+  }
   if (fields.length === 0) return db.prepare('SELECT * FROM sub_tasks WHERE id = ?').get(id);
   fields.push('updated_at = @updated_at');
   values.updated_at = now();
@@ -371,8 +384,8 @@ export function completeSubTask(id: number): void {
   const subTask = db.prepare('SELECT * FROM sub_tasks WHERE id = ?').get(id) as any;
   if (!subTask) return;
   const timestamp = now();
-  db.prepare('UPDATE sub_tasks SET status = ?, completed_at = ?, updated_at = ? WHERE id = ?')
-    .run('已完成', timestamp, timestamp, id);
+  db.prepare('UPDATE sub_tasks SET status = ?, completed_at = ?, status_changed_at = ?, updated_at = ? WHERE id = ?')
+    .run('已完成', timestamp, timestamp, timestamp, id);
   const mainTask = db.prepare('SELECT * FROM main_tasks WHERE id = ?').get(subTask.main_task_id) as any;
   if (!mainTask) return;
   const startTime = new Date(mainTask.created_at).getTime();
@@ -390,8 +403,8 @@ export function completeSubTask(id: number): void {
 }
 
 export function cancelSubTask(id: number): void {
-  db.prepare('UPDATE sub_tasks SET status = ?, updated_at = ? WHERE id = ?')
-    .run('已取消', now(), id);
+  db.prepare('UPDATE sub_tasks SET status = ?, status_changed_at = ?, updated_at = ? WHERE id = ?')
+    .run('已取消', now(), now(), id);
   const st = db.prepare('SELECT main_task_id FROM sub_tasks WHERE id = ?').get(id) as any;
   if (st) updateMainTaskStatus(st.main_task_id);
 }
@@ -685,18 +698,18 @@ export function moveTask(id: number, newStatus: string): void {
 
   if (hasSubs && rule) {
     rule.from.forEach(fromStatus => {
-      db.prepare('UPDATE sub_tasks SET status = ?, updated_at = ? WHERE main_task_id = ? AND status = ?')
-        .run(rule.to, now(), id, fromStatus);
+      db.prepare('UPDATE sub_tasks SET status = ?, status_changed_at = ?, updated_at = ? WHERE main_task_id = ? AND status = ?')
+        .run(rule.to, now(), now(), id, fromStatus);
     });
     // Step 2: Derive final main task status from sub-tasks
     const refreshed = db.prepare('SELECT status FROM sub_tasks WHERE main_task_id = ?').all(id) as any[];
     const derived = deriveMainTaskStatus(refreshed);
     if (derived) {
-      db.prepare('UPDATE main_tasks SET status = ?, updated_at = ? WHERE id = ?').run(derived, now(), id);
+      db.prepare('UPDATE main_tasks SET status = ?, status_changed_at = ?, updated_at = ? WHERE id = ?').run(derived, now(), now(), id);
     }
   } else if (!hasSubs) {
     // No sub-tasks: directly update main task status
-    db.prepare('UPDATE main_tasks SET status = ?, updated_at = ? WHERE id = ?').run(newStatus, now(), id);
+    db.prepare('UPDATE main_tasks SET status = ?, status_changed_at = ?, updated_at = ? WHERE id = ?').run(newStatus, now(), now(), id);
   }
 }
 
@@ -712,6 +725,23 @@ export function deleteProject(name: string): void {
 export function countTasksInProject(projectName: string): number {
   const row = db.prepare('SELECT COUNT(*) as cnt FROM main_tasks WHERE project_name = ?').get(projectName) as any;
   return row ? row.cnt : 0;
+}
+
+// Flush WAL back into the main database file so a raw file copy (backup)
+// contains all committed data. Required before /api/backup/download.
+export function checkpointDatabase(): void {
+  if (db) db.pragma('wal_checkpoint(TRUNCATE)');
+}
+
+// 完成统计：自 since（ISO 时间戳起点）以来完成的主任务数与子任务（进展报告）数
+export function getCompletionStats(sinceIso: string): { mainTasks: number; subTasks: number } {
+  const main = db.prepare(
+    "SELECT COUNT(*) n FROM main_tasks WHERE status = '已完成' AND updated_at >= ?"
+  ).get(sinceIso) as any;
+  const sub = db.prepare(
+    'SELECT COUNT(*) n FROM progress_reports WHERE created_at >= ?'
+  ).get(sinceIso) as any;
+  return { mainTasks: main ? main.n : 0, subTasks: sub ? sub.n : 0 };
 }
 
 export function closeDatabase(): void {

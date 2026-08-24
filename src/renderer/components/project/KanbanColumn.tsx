@@ -3,6 +3,8 @@ import { useDroppable } from '@dnd-kit/core';
 import { SortableContext } from '@dnd-kit/sortable';
 import { Tag } from 'antd';
 import KanbanCard from './KanbanCard';
+import { useLang } from '../../context/LanguageContext';
+import { statusText } from '../../i18n';
 import type { MainTask } from '../../App';
 
 const COLUMN_COLORS: Record<string, string> = {
@@ -18,6 +20,7 @@ const KanbanColumn: React.FC<{
   onEdit: (task: MainTask) => void;
 }> = ({ status, tasks, width, selectedTaskId, onSelect, onEdit }) => {
   const { setNodeRef } = useDroppable({ id: `col-${status}` });
+  const { lang } = useLang();
   return (
     <div ref={setNodeRef} style={{
       width, height: '100%', flexShrink: 0,
@@ -25,7 +28,7 @@ const KanbanColumn: React.FC<{
       padding: 8, overflowY: 'auto',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, padding: '0 4px' }}>
-        <Tag color={COLUMN_COLORS[status]}>{status}</Tag>
+        <Tag color={COLUMN_COLORS[status]}>{statusText(status, lang)}</Tag>
         <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{tasks.length}</span>
       </div>
       <SortableContext items={tasks.map(t => `task-${t.id}`)}>

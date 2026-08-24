@@ -3,6 +3,8 @@ import { Select, Button, Popconfirm, message, Progress } from 'antd';
 import { PushpinOutlined, PushpinFilled, DeleteOutlined, DownloadOutlined } from '@ant-design/icons';
 import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, pointerWithin, useSensor, useSensors, PointerSensor } from '@dnd-kit/core';
 import { api } from '../../utils/api-client';
+import { useLang } from '../../context/LanguageContext';
+import { statusText } from '../../i18n';
 import KanbanColumn from './KanbanColumn';
 import type { MainTask } from '../../App';
 
@@ -12,6 +14,7 @@ const ProjectView: React.FC<{
   navigateProject?: string | null;
   refreshKey?: number;
 }> = ({ onSelectTask, onEditTask, navigateProject, refreshKey }) => {
+  const { t, tf, lang } = useLang();
   const [projects, setProjects] = useState<string[]>([]);
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
   const [tasks, setTasks] = useState<MainTask[]>([]);
@@ -76,7 +79,7 @@ const ProjectView: React.FC<{
   const handleDelete = async () => {
     if (!selectedProject) return;
     await api.deleteProject(selectedProject);
-    message.success('项目已删除');
+    message.success(t('project.deleted'));
     setSelectedProject(null);
     setTasks([]);
     api.getProjects().then(p => setProjects(p || []));
@@ -93,7 +96,7 @@ const ProjectView: React.FC<{
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexShrink: 0 }}>
         <Select
           style={{ width: 240 }}
-          placeholder="选择项目"
+          placeholder={t('project.selectPh')}
           value={selectedProject}
           onChange={v => { if (v) loadTasks(v); }}
           options={projects.map(p => ({ value: p, label: p }))}
@@ -103,8 +106,8 @@ const ProjectView: React.FC<{
             <Button size="small" icon={pinned ? <PushpinFilled style={{ color: '#faad14' }} /> : <PushpinOutlined />}
               onClick={handlePin} />
             <Button size="small" icon={<DownloadOutlined />}
-              onClick={() => api.exportRetrospectiveMarkdown(selectedProject)}>导出复盘</Button>
-            <Popconfirm title={`确定删除项目"${selectedProject}"？此操作不可恢复。`} onConfirm={handleDelete}>
+              onClick={() => api.exportRetrospectiveMarkdown(selectedProject)}>{t('project.exportRetro')}</Button>
+            <Popconfirm title={tf('project.delConfirm', { name: selectedProject })} onConfirm={handleDelete}>
               <Button size="small" danger icon={<DeleteOutlined />} />
             </Popconfirm>
             <Progress size="small" style={{ width: 100, margin: '0 0 0 auto' }}
@@ -116,10 +119,10 @@ const ProjectView: React.FC<{
 
       {/* Kanban board */}
       {loading ? (
-        <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', padding: 40 }}>加载中...</div>
+        <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', padding: 40 }}>{t('common.loading')}</div>
       ) : !selectedProject ? (
         <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', padding: 40 }}>
-          选择一个项目以查看看板
+          {t('project.empty')}
         </div>
       ) : (
         <div style={{ flex: 1, overflow: 'auto', minHeight: 0 }}>

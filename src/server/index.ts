@@ -40,6 +40,8 @@ import {
   moveTask,
   deleteProject,
   countTasksInProject,
+  checkpointDatabase,
+  getCompletionStats,
 } from './database';
 
 const app = express();
@@ -411,7 +413,10 @@ app.post('/api/crypto/encrypt', (req, res) => {
 app.post('/api/crypto/decrypt', (req, res) => {
   try {
     const { password } = req.body;
-    if (!fs.existsSync(KEY_FILE)) return res.json({ value: '' });
+    // 未配置密钥：与"密码错误"区分开，引导用户先保存密钥
+    if (!fs.existsSync(KEY_FILE)) {
+      return res.status(400).json({ error: '尚未配置 API 密钥，请先在上方输入密钥和密码并点击保存' });
+    }
     const data = Buffer.from(fs.readFileSync(KEY_FILE, 'utf8'), 'base64');
     const salt = data.subarray(0, SALT_LEN);
     const iv = data.subarray(SALT_LEN, SALT_LEN + IV_LEN);
@@ -420,16 +425,40 @@ app.post('/api/crypto/decrypt', (req, res) => {
     const key = deriveKey(password, salt);
     const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
     decipher.setAuthTag(tag);
-    const dec = Buffer.concat([decipher.update(enc), decipher.final()]);
+    let dec: Buffer;
+    try {
+      dec = Buffer.concat([decipher.update(enc), decipher.final()]);
+    } catch (e) {
+      // 解密失败 = 密码错误（或数据损坏），与"未配置"区分提示
+      return res.status(400).json({ error: '密码错误，请重新输入' });
+    }
     const plain = dec.toString('utf8');
     // Unlock in memory so the AI assistant can use the key during this session.
     unlockedApiKey = plain;
     res.json({ value: plain });
-  } catch (e: any) { res.status(500).json({ error: '密码错误或数据损坏' }); }
+  } catch (e: any) { res.status(500).json({ error: '密钥数据损坏，请重新保存' }); }
 });
 
 app.get('/api/crypto/has-key', (req, res) => {
   res.json({ exists: fs.existsSync(KEY_FILE) });
+});
+
+// 密钥状态：hasKey = 是否配置过密钥；unlocked = 本次会话是否已解锁（内存中）
+app.get('/api/crypto/status', (_req, res) => {
+  res.json({ hasKey: fs.existsSync(KEY_FILE), unlocked: unlockedApiKey !== null });
+});
+
+// ==================== 启动战报统计 ====================
+
+app.get('/api/report/summary', (req, res) => {
+  try {
+    const since = String(req.query.since || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(since)) {
+      return res.status(400).json({ error: '参数格式错误' });
+    }
+    const stats = getCompletionStats(since + 'T00:00:00.000Z');
+    res.json(stats);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // ==================== Retrospectives ====================
@@ -505,6 +534,9 @@ const DB_FILE = path.join(__dirname, '..', '..', 'data', 'kanban.db');
 app.get('/api/backup/download', (req, res) => {
   try {
     if (!fs.existsSync(DB_FILE)) { res.status(404).json({ error: '数据库文件不存在' }); return; }
+    // Flush WAL to the main file first, otherwise the exported copy is missing
+    // all recent data (the main file alone is just an empty header with WAL).
+    checkpointDatabase();
     const d = new Date();
     const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
     res.setHeader('Content-Type', 'application/octet-stream');
@@ -573,8 +605,11 @@ app.post('/api/ai/parse', async (req, res) => {
       { role: 'system', content: `你是任务管理参谋。分析用户输入，提取任务信息，识别缺失关键字段。支持多任务拆分。若用户补充信息，合并到原有理解中重新解析。
 
 若用户一句话包含多个任务，返回JSON数组。
-单任务：{"name":"任务名","content":"内容","purpose":"目标","resources":"资源","duration":"工期","effect":"预期效果","hints":"注意要点","approach":"实现路径","relevants":"相关方","priority":0-10,"status":"进行中","sub_tasks":[{"name":"子任务"}]}
+单任务：{"name":"任务名","content":"内容","purpose":"目标","resources":"资源","duration":"工期","effect":"预期效果","hints":"注意要点","approach":"实现路径","relevants":"相关方","priority":0-10,"status":"进行中","project_name":"所属项目","sub_tasks":[{"name":"子任务"}]}
 多任务：[{...},{...}]
+重要规则：
+- duration 必须只返回整数天数（例如用户说"工期三天"则返回"3"；"三天后"应理解为工期3），绝不能返回"今天""三天后"等日期或文字描述。未提及工期时返回空字符串""。
+- project_name 表示任务所属的项目名称（例如"工作项目""Q3迭代"）。用户未提及时返回空字符串""。
 只返回JSON，不要其他文字。` },
     ];
     if (history && Array.isArray(history)) {
@@ -592,13 +627,24 @@ app.post('/api/ai/parse', async (req, res) => {
     text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
     const parsed = JSON.parse(text);
 
+    // 工期规范化：只接受整数天数。AI 若返回"今天""三天后"等描述，做二次解析提取数字；
+    // 仍无法得到整数时置空，由用户手动填写。
+    const normalizeDuration = (raw: any): string => {
+      const s = raw === null || raw === undefined ? '' : String(raw).trim();
+      if (!s) return '';
+      if (/^\d+$/.test(s)) return s;
+      const m = s.match(/\d+/);
+      return m ? m[0] : '';
+    };
+
     const normalizeTask = (t: any) => ({
       name: t.name || '未命名', content: t.content || '',
       purpose: t.purpose || '', resources: t.resources || '',
-      duration: t.duration || '', effect: t.effect || '',
+      duration: normalizeDuration(t.duration), effect: t.effect || '',
       hints: t.hints || '', approach: t.approach || '',
       relevants: t.relevants || '', priority: t.priority || 0,
       status: t.status || '进行中',
+      project_name: t.project_name || '',
       sub_tasks: (t.sub_tasks || []).filter((s: any) => s.name).map((s: any) => ({ name: s.name })),
     });
 

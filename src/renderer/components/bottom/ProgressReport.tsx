@@ -1,8 +1,10 @@
 import React, { useRef, useEffect } from 'react';
+import { useLang } from '../../context/LanguageContext';
 import type { ProgressReport as PR } from '../../App';
 
 const ProgressReport: React.FC<{ reports: PR[] }> = ({ reports }) => {
   const ref = useRef<HTMLDivElement>(null);
+  const { lang } = useLang();
 
   useEffect(() => {
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
@@ -19,7 +21,7 @@ const ProgressReport: React.FC<{ reports: PR[] }> = ({ reports }) => {
       whiteSpace: 'pre-wrap', wordBreak: 'break-all',
     }}>
       {reports.length === 0
-        ? <span style={{ color: 'var(--color-text-muted)' }}>暂无进展记录</span>
+        ? <span style={{ color: 'var(--color-text-muted)' }}>{lang === 'en' ? 'No progress records' : '暂无进展记录'}</span>
         : reports.map(r => <div key={r.id}>{r.report_text}</div>)}
     </div>
   );

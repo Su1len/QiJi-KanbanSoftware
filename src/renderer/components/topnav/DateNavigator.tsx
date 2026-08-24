@@ -3,15 +3,15 @@ import { Button } from 'antd';
 import { DoubleLeftOutlined, LeftOutlined, RightOutlined, DoubleRightOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { formatDateWithWeek } from '../../utils/date-utils';
-import { useTheme } from '../../context/ThemeContext';
+import { useLang } from '../../context/LanguageContext';
 
 const DateNavigator: React.FC<{
   currentMonday: dayjs.Dayjs; selectedDate: string;
   onNavigateWeek: (d: number) => void; onNavigateMonth: (d: number) => void;
 }> = ({ selectedDate, onNavigateWeek, onNavigateMonth }) => {
-  const { t } = useTheme();
+  const { lang } = useLang();
   const displayDate = dayjs(selectedDate);
-  const dateLabel = formatDateWithWeek(displayDate);
+  const dateLabel = formatDateWithWeek(displayDate, lang);
 
   return (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, padding: '8px 0' }}>

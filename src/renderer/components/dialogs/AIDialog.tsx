@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Modal, Input, Button, Form, message, Card, Tag, Space } from 'antd';
-import { RobotOutlined, CheckCircleOutlined, PlusOutlined } from '@ant-design/icons';
+import { RobotOutlined, CheckCircleOutlined, PlusOutlined, LockOutlined, UnlockOutlined } from '@ant-design/icons';
 import { api } from '../../utils/api-client';
 import TaskFormDialog from './TaskFormDialog';
 import { useMode } from '../../context/ModeContext';
+import { useLang } from '../../context/LanguageContext';
 
 const { TextArea } = Input;
 
@@ -12,8 +13,10 @@ const AIDialog: React.FC<{
   onResult: (data: any) => void;
   existingTasks: any[];
   selectedDate: string;
-}> = ({ onClose, existingTasks, selectedDate }) => {
+  onOpenSettings?: () => void;
+}> = ({ onClose, onResult, existingTasks, selectedDate, onOpenSettings }) => {
   const { mode } = useMode();
+  const { t, tf, lang } = useLang();
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [tasks, setTasks] = useState<any[] | null>(null);
@@ -21,6 +24,12 @@ const AIDialog: React.FC<{
   const [creating, setCreating] = useState(false);
   const [followUpInput, setFollowUpInput] = useState('');
   const [chatHistory, setChatHistory] = useState<any[]>([]);
+  const [keyStatus, setKeyStatus] = useState<{ hasKey: boolean; unlocked: boolean } | null>(null);
+
+  // 打开时查询密钥状态，用于顶部状态提示
+  useEffect(() => {
+    api.getCryptoStatus().then(setKeyStatus).catch(() => {});
+  }, []);
 
   const doParse = async (text: string, history?: any[]) => {
     if (!text.trim()) return;
@@ -30,10 +39,10 @@ const AIDialog: React.FC<{
       if (result.tasks && result.tasks.length > 0) {
         setTasks(result.tasks);
       } else {
-        message.warning('未能解析出有效任务，请尝试更详细的描述');
+        message.warning(t('ai.noResult'));
       }
     } catch (e: any) {
-      message.error(e.message || 'AI 解析失败，请检查 API 密钥配置');
+      message.error(e.message || (t('ai.parseFail')));
     }
     setLoading(false);
   };
@@ -64,27 +73,30 @@ const AIDialog: React.FC<{
     if (tasks && next < tasks.length) {
       setTaskIndex(next);
     } else {
-      message.success(`已创建 ${tasks?.length || 0} 个任务`);
+      message.success(tf('ai.created', { n: tasks?.length || 0 }));
+      // 通知父组件刷新看板，让新任务即时显示，无需切换日期
+      onResult({});
       onClose();
     }
   };
 
   // If in creation mode, show sequential TaskFormDialogs
   if (creating && tasks && taskIndex < tasks.length) {
-    const t = tasks[taskIndex];
+    const task = tasks[taskIndex];
     return (
       <TaskFormDialog
         mode={mode}
         task={null}
         selectedDate={selectedDate}
         initialData={{
-          name: t.name, content: t.content || '',
-          purpose: t.purpose || '', resources: t.resources || '',
-          duration: t.duration || '', effect: t.effect || '',
-          hints: t.hints || '', approach: t.approach || '',
-          relevants: t.relevants || '', priority: t.priority || 0,
-          status: t.status || '进行中',
-          sub_tasks: t.sub_tasks || [],
+          name: task.name, content: task.content || '',
+          purpose: task.purpose || '', resources: task.resources || '',
+          duration: task.duration || '', effect: task.effect || '',
+          hints: task.hints || '', approach: task.approach || '',
+          relevants: task.relevants || '', priority: task.priority || 0,
+          status: task.status || '进行中',
+          project_name: task.project_name || '',
+          sub_tasks: task.sub_tasks || [],
         }}
         onSubmit={async (data) => {
           try {
@@ -93,14 +105,14 @@ const AIDialog: React.FC<{
           } catch (e: any) { message.error(e.message); }
         }}
         onCancel={() => { setCreating(false); setTasks(null); }}
-        titleExtra={`AI 助理 — 第 ${taskIndex + 1}/${tasks.length} 个任务`}
+        titleExtra={tf('ai.progress', { i: taskIndex + 1, n: tasks.length })}
       />
     );
   }
 
   return (
     <Modal
-      title={<span><RobotOutlined /> AI 助理创建/修改任务</span>}
+      title={<span><RobotOutlined /> {t('ai.title')}</span>}
       open
       onCancel={onClose}
       footer={null}
@@ -108,41 +120,64 @@ const AIDialog: React.FC<{
     >
       {!tasks ? (
         <div>
+          <div style={{ marginBottom: 8, fontSize: 13, lineHeight: '20px' }}>
+            {keyStatus && keyStatus.hasKey && keyStatus.unlocked ? (
+              <span style={{ color: 'var(--color-success)' }}>
+                <UnlockOutlined /> {t('ai.unlocked')}
+              </span>
+            ) : (
+              <span style={{ color: 'var(--color-warning)' }}>
+                <LockOutlined /> {t('ai.locked1')}
+                {onOpenSettings ? (
+                  <a
+                    onClick={() => { onClose(); onOpenSettings(); }}
+                    style={{ margin: '0 2px', color: 'var(--color-accent)' }}
+                  >
+                    {t('ai.locked2')}
+                  </a>
+                ) : (
+                  <span style={{ margin: '0 2px' }}>{t('ai.locked2')}</span>
+                )}
+                {t('ai.locked3')}
+              </span>
+            )}
+          </div>
           <TextArea
             value={input}
             onChange={e => setInput(e.target.value)}
-            placeholder={'请用自然语言描述任务，例如：\n"今天下午三点前完成竞品分析报告，对比A公司和B公司财报，数据找王姐要，做完先给李经理过目"\n\n也可以同时描述多个任务：\n"今天要搞三件事：1.提交报销单 2.约王总讨论预算 3.清理测试数据库"'}
+            placeholder={t('ai.placeholder')}
             rows={6}
             style={{ marginBottom: 12 }}
           />
           <Button type="primary" loading={loading} onClick={handleSend} icon={<RobotOutlined />}>
-            发送
+            {t('ai.send')}
           </Button>
         </div>
       ) : (
         <div>
           <div style={{ marginBottom: 12, color: 'var(--color-text-secondary)' }}>
-            AI 解析出 {tasks.length} 个任务，请确认后点击"逐个创建"逐一填写详情
+            {tf('ai.parsed', { n: tasks.length })}
           </div>
-          {tasks.map((t, i) => (
+          {tasks.map((task, i) => (
             <Card key={i} size="small" style={{ marginBottom: 8 }}
-              title={<span style={{ fontWeight: 600 }}>{t.name}</span>}
+              title={<span style={{ fontWeight: 600 }}>{task.name}</span>}
             >
               <Space wrap size={4}>
-                {t.purpose && <Tag color="blue">目标: {t.purpose}</Tag>}
-                {t.priority > 0 && <Tag color="orange">优先级: {t.priority}</Tag>}
-                {t.duration && <Tag>工期: {t.duration}天</Tag>}
-                {t.relevants && <Tag color="purple">{t.relevants}</Tag>}
-                {t.hints && <Tag color="cyan">{t.hints}</Tag>}
-                {t.sub_tasks?.length > 0 && <Tag color="green">{t.sub_tasks.length} 个子任务</Tag>}
+                {task.purpose && <Tag color="blue">{t('field.purpose')}: {task.purpose}</Tag>}
+                {task.project_name && <Tag color="geekblue">{t('form.project')}: {task.project_name}</Tag>}
+                {task.priority > 0 && <Tag color="orange">{t('field.priority')}: {task.priority}</Tag>}
+                {task.duration && <Tag>{t('field.duration')}: {task.duration}{lang === 'en' ? ' days' : '天'}</Tag>}
+                {task.relevants && <Tag color="purple">{task.relevants}</Tag>}
+                {task.hints && <Tag color="cyan">{task.hints}</Tag>}
+                {task.sub_tasks?.length > 0 && <Tag color="green">{tf('ai.subCount', { n: task.sub_tasks.length })}</Tag>}
               </Space>
-              {t.content && <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 4 }}>{t.content}</div>}
+              {task.content && <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', marginTop: 4 }}>{task.content}</div>}
             </Card>
           ))}
           {/* Follow-up section */}
           <div style={{ marginTop: 12, padding: '10px 12px', background: 'var(--color-bg-hover)', borderRadius: 6 }}>
             <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 8 }}>
-              还有哪些要素没想起来？你可以直接补充。（例如："注意预算不能超过五万"）
+              {t('ai.followUp')}
             </div>
             {chatHistory.length > 0 && (
               <div style={{ marginBottom: 8, maxHeight: 120, overflow: 'auto' }}>
@@ -156,18 +191,18 @@ const AIDialog: React.FC<{
             )}
             <div style={{ display: 'flex', gap: 8 }}>
               <Input size="small" value={followUpInput} onChange={e => setFollowUpInput(e.target.value)}
-                placeholder="补充信息（可选）" style={{ flex: 1 }}
+                placeholder={t('ai.followUpPh')} style={{ flex: 1 }}
                 onPressEnter={handleFollowUp} />
-              <Button size="small" onClick={handleFollowUp} loading={loading}>补充</Button>
-              <Button size="small" onClick={startCreate} type="primary">跳过追问</Button>
+              <Button size="small" onClick={handleFollowUp} loading={loading}>{t('ai.followUpBtn')}</Button>
+              <Button size="small" onClick={startCreate} type="primary">{t('ai.skip')}</Button>
             </div>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
-            <Button onClick={() => { setTasks(null); setChatHistory([]); }}>重新输入</Button>
-            <Button onClick={onClose}>取消</Button>
+            <Button onClick={() => { setTasks(null); setChatHistory([]); }}>{t('ai.reinput')}</Button>
+            <Button onClick={onClose}>{t('common.cancel')}</Button>
             <Button type="primary" icon={<PlusOutlined />} onClick={startCreate}>
-              逐个创建（{tasks.length}个）
+              {tf('ai.createAll', { n: tasks.length })}
             </Button>
           </div>
         </div>

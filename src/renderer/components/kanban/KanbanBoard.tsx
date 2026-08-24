@@ -3,6 +3,8 @@ import { Table, Tag, Tooltip } from 'antd';
 import { InfoCircleOutlined } from '@ant-design/icons';
 import type { MainTask, SubTask } from '../../App';
 import { useTheme } from '../../context/ThemeContext';
+import { useLang } from '../../context/LanguageContext';
+import { statusText } from '../../i18n';
 import type { AppMode } from '../../context/ModeContext';
 import { compareThemrpr, formatThemrprTooltip, formatThemrprCell, THEMRPR_FIELDS } from '../../utils/themrpr-utils';
 import ThemeBackground from '../common/ThemeBackground';
@@ -28,6 +30,7 @@ const KanbanBoard: React.FC<{
   onEditTask: (task: MainTask) => void;
 }> = ({ mode, tasks, loading, selectedTask, selectedSubTask, onSelectTask, onEditTask }) => {
   const { theme } = useTheme();
+  const { t, lang } = useLang();
   const [quotes, setQuotes] = React.useState<{ quote: string; author: string }[]>([]);
   const [quote, setQuote] = React.useState<{ quote: string; author: string } | null>(null);
   const [tip, setTip] = React.useState('');
@@ -69,41 +72,41 @@ const KanbanBoard: React.FC<{
 
   const allColumns = [
     {
-      title: '编号', dataIndex: 'letter', key: 'letter', width: '5%',
+      title: t('col.letter'), dataIndex: 'letter', key: 'letter', width: '5%',
       render: (_: any, row: any) => row.type === 'main' ? row.letter : '',
     },
     {
-      title: '任务列表', dataIndex: 'name', key: 'name', width: mode === 'simple' ? '75%' : '22%',
+      title: t('col.name'), dataIndex: 'name', key: 'name', width: mode === 'simple' ? '75%' : '22%',
       render: (name: string, row: any) => (
         <span style={{
           paddingLeft: row.type === 'sub' ? 20 : 0,
           color: row.type === 'sub' ? 'var(--color-text-secondary)' : undefined,
-          cursor: mode === 'simple' && row.type === 'main' ? 'pointer' : undefined,
+          cursor: row.type === 'main' ? 'pointer' : undefined,
         }}
-        onClick={() => { if (mode === 'simple' && row.type === 'main') onEditTask(row.task); }}
-        title={mode === 'simple' && row.type === 'main' ? '点击编辑任务' : undefined}
+        onClick={() => { if (row.type === 'main') onEditTask(row.task); }}
+        title={row.type === 'main' ? t('form.editTask') : undefined}
         >{name}</span>
       ),
     },
     {
-      title: '子任务', key: 'subtasks', width: '18%', hideInSimple: true,
+      title: t('col.subtasks'), key: 'subtasks', width: '18%', hideInSimple: true,
       render: (_: any, row: any) => {
         if (row.type === 'sub') return '';
-        if (!row.sub_tasks?.length) return <span style={{ color: 'var(--color-text-muted)' }}>无</span>;
+        if (!row.sub_tasks?.length) return <span style={{ color: 'var(--color-text-muted)' }}>{t('common.none')}</span>;
         return <div style={{ fontSize: 12 }}>{row.sub_tasks.map((s: SubTask, i: number) => (
           <Tag key={i} color={s.status === '已完成' ? 'green' : s.status === '已取消' ? 'default' : 'blue'} style={{ marginBottom: 2 }}>{s.name}</Tag>
         ))}</div>;
       },
     },
     {
-      title: 'THEMRPR', key: 'themrpr', width: '22%', hideInSimple: true,
+      title: t('col.themrpr'), key: 'themrpr', width: '22%', hideInSimple: true,
       render: (_: any, row: any) => {
         if (row.type === 'main') {
           const data = extractThemrprData(row);
           return (
             <div style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }} onClick={() => onEditTask(row.task)}>
-              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{data.purpose || '（未设置目标）'}</span>
-              <Tooltip title={<pre style={{ margin: 0, fontFamily: 'inherit', fontSize: 12 }}>{formatThemrprTooltip(data)}</pre>}>
+              <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{data.purpose || t('col.noGoal')}</span>
+              <Tooltip title={<pre style={{ margin: 0, fontFamily: 'inherit', fontSize: 12 }}>{formatThemrprTooltip(data, lang)}</pre>}>
                 <InfoCircleOutlined style={{ color: 'var(--color-accent)', fontSize: 14, flexShrink: 0 }} />
               </Tooltip>
             </div>
@@ -112,11 +115,11 @@ const KanbanBoard: React.FC<{
         const mainData = extractThemrprData(row.task);
         const subData = extractThemrprData(row);
         const comparison = compareThemrpr(mainData, subData);
-        if (comparison === 'identical') return <span style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}>同主任务</span>;
+        if (comparison === 'identical') return <span style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}>{t('col.sameAsMain')}</span>;
         return (
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }} onClick={() => onEditTask(row.task)}>
-            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>{formatThemrprCell(comparison) || '同主任务'}</span>
-            <Tooltip title={<pre style={{ margin: 0, fontFamily: 'inherit', fontSize: 12 }}>{formatThemrprTooltip(subData)}</pre>}>
+            <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12 }}>{formatThemrprCell(comparison, lang) || t('col.sameAsMain')}</span>
+            <Tooltip title={<pre style={{ margin: 0, fontFamily: 'inherit', fontSize: 12 }}>{formatThemrprTooltip(subData, lang)}</pre>}>
               <InfoCircleOutlined style={{ color: 'var(--color-accent)', fontSize: 14, flexShrink: 0 }} />
             </Tooltip>
           </div>
@@ -124,17 +127,17 @@ const KanbanBoard: React.FC<{
       },
     },
     {
-      title: '后序', key: 'nextSubTask', width: '8%', hideInSimple: true,
+      title: t('col.next'), key: 'nextSubTask', width: '8%', hideInSimple: true,
       render: (_: any, row: any) => {
         if (row.type !== 'sub') return null;
         const nextId = row.subTask.next_sub_task_id;
-        if (!nextId) return <span style={{ color: 'var(--color-text-muted)' }}>无</span>;
+        if (!nextId) return <span style={{ color: 'var(--color-text-muted)' }}>{t('common.none')}</span>;
         const nextSub = row.task.sub_tasks?.find((s: any) => s.id === nextId);
-        return <span>{nextSub?.name || '（未知）'}</span>;
+        return <span>{nextSub?.name || t('col.unknown')}</span>;
       },
     },
-    { title: '事务具体内容与执行情况评估', dataIndex: 'content', key: 'content', width: '15%', hideInSimple: true, render: (t: string) => t || <span style={{ color: 'var(--color-text-muted)' }}>-</span> },
-    { title: '任务状态', dataIndex: 'status', key: 'status', width: mode === 'simple' ? '20%' : '10%', render: (s: string) => <Tag color={STATUS_COLORS[s] || 'default'}>{s}</Tag> },
+    { title: t('col.content'), dataIndex: 'content', key: 'content', width: '15%', hideInSimple: true, render: (s: string) => s || <span style={{ color: 'var(--color-text-muted)' }}>-</span> },
+    { title: t('col.status'), dataIndex: 'status', key: 'status', width: mode === 'simple' ? '20%' : '10%', render: (s: string) => <Tag color={STATUS_COLORS[s] || 'default'}>{statusText(s, lang)}</Tag> },
   ];
   const columns = mode === 'simple' ? allColumns.filter(c => !(c as any).hideInSimple) : allColumns;
 
@@ -147,7 +150,7 @@ const KanbanBoard: React.FC<{
           height: '100%', position: 'relative', zIndex: 1, padding: '40px 20px',
         }}>
           {loading ? (
-            <div style={{ fontSize: 16, color: 'var(--color-text-muted)' }}>加载中...</div>
+            <div style={{ fontSize: 16, color: 'var(--color-text-muted)' }}>{t('common.loading')}</div>
           ) : quote ? (
             <>
               <div style={{ fontSize: 18, color: 'var(--color-text-primary)', textAlign: 'center', maxWidth: 500, lineHeight: 2, fontStyle: 'italic' }}>
@@ -158,17 +161,12 @@ const KanbanBoard: React.FC<{
               </div>
             </>
           ) : (
-            <div style={{ fontSize: 16, color: 'var(--color-text-muted)' }}>正在加载...</div>
+            <div style={{ fontSize: 16, color: 'var(--color-text-muted)' }}>{t('common.loading')}</div>
           )}
           {!loading && tip && (
             <div style={{ fontSize: 13, color: 'var(--color-accent)', marginTop: 20,
               background: 'var(--color-bg-hover)', padding: '8px 16px', borderRadius: 6 }}>
               💡 {tip}
-            </div>
-          )}
-          {!loading && (
-            <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 24 }}>
-              点击下方"+ 新建主任务"，开始你今天的作战计划
             </div>
           )}
         </div>
@@ -190,7 +188,7 @@ const KanbanBoard: React.FC<{
             cursor: 'pointer',
           },
         })}
-        locale={{ emptyText: '暂无任务，点击下方"+ 新建主任务"创建' }}
+        locale={{ emptyText: t('col.noGoal') }}
         style={{ position: 'relative', zIndex: 1, tableLayout: 'fixed', width: '100%' }}
       />
     </div>
