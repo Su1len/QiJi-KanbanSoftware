@@ -215,9 +215,9 @@ const SettingsDialog: React.FC<{ onClose: () => void; initialTab?: string }> = (
                   if (result.success) {
                     message.success(t('set.data.imported'));
                   } else {
-                    message.error(result.error || '导入失败');
+                    message.error(result.error || t('data.importFail'));
                   }
-                } catch (err: any) { message.error(err.message || '导入失败'); }
+                } catch (err: any) { message.error(err.message || t('data.importFail')); }
                 e.target.value = '';
               }}
             />

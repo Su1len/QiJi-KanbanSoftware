@@ -70,8 +70,8 @@ const TaskActions: React.FC<{
             {t('btn.retrospect')}
           </Button>
         )}
-        <Popconfirm title="此操作将永久删除主任务及其所有子任务，不可恢复。是否继续？"
-          onConfirm={onDeleteTask} okText="确认删除" cancelText="取消" disabled={!selectedTask}>
+        <Popconfirm title={t('confirm.deleteTask')}
+          onConfirm={onDeleteTask} okText={t('confirm.deleteOk')} cancelText={t('common.cancel')} disabled={!selectedTask}>
           <Button size="small" danger icon={<DeleteOutlined />} disabled={!selectedTask} style={{ whiteSpace: 'nowrap' }}>
             {tt('deleteTaskButton', t('btn.delete'))}
           </Button>

@@ -1,5 +1,7 @@
 import React from 'react';
 import { Button, Result } from 'antd';
+import { currentLang } from '../../context/LanguageContext';
+import { tr } from '../../i18n';
 
 interface State { hasError: boolean; error: Error | null; }
 
@@ -19,11 +21,11 @@ export default class ErrorBoundary extends React.Component<{ children: React.Rea
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', backgroundColor: '#1a1d2e' }}>
           <Result
             status="error"
-            title="出了点问题"
-            subTitle={this.state.error?.message || '未知错误'}
+            title={tr('err.title', currentLang)}
+            subTitle={this.state.error?.message || (currentLang === 'en' ? 'Unknown error' : '未知错误')}
             extra={
               <Button type="primary" onClick={() => window.location.reload()}>
-                刷新页面
+                {tr('err.reload', currentLang)}
               </Button>
             }
           />

@@ -136,7 +136,7 @@ export const MSGS: Record<string, { zh: string; en: string }> = {
   'set.api.pwRequired': { zh: '请输入密码', en: 'Please enter the password' },
   'set.about.version': { zh: '版本 {v}', en: 'Version {v}' },
   'set.about.desc': { zh: '骐骥看板 —— 一款简洁高效的桌面任务管理工具', en: 'Qiji Kanban - a simple and efficient desktop task management tool' },
-  'set.about.dev': { zh: '开发者：桑尼之子 昭深', en: 'Developer: Son of Sunny, Zhaoshen' },
+  'set.about.dev': { zh: '开发者：桑尼之子 昭深', en: 'Developer: Child of Sunny, Zhaoshen' },
   'set.about.log': { zh: '查看更新日志', en: 'View changelog' },
   'set.about.logClose': { zh: '收起更新日志', en: 'Hide changelog' },
   'set.about.noLog': { zh: '暂无更新记录', en: 'No changelog yet' },
@@ -204,7 +204,59 @@ export const MSGS: Record<string, { zh: string; en: string }> = {
   'week.sun': { zh: '日', en: 'Sun' },
   // 日期格式
   'date.format': { zh: '{y}年 第{w}周 {m}月{d}日', en: '{y} Week {w} {m}/{d}' },
+  // 使用小贴士（空看板时展示）
+  'tip.1': { zh: '试试用"项目"视图来组织你的大型战役', en: 'Try the "Project" view to organize your big campaigns' },
+  'tip.2': { zh: 'AI助理可以帮你从一段话里自动生成任务', en: 'The AI assistant can create tasks from a single sentence' },
+  'tip.3': { zh: '双击任务可以快速编辑它的详情', en: 'Double-click a task to quickly edit its details' },
+  'tip.4': { zh: '在子任务之间设置"后序"，可以形成工作流水线', en: 'Set "Next" between sub-tasks to build a work pipeline' },
+  'tip.5': { zh: '切换主题可以让你的看板焕然一新', en: 'Switch themes to refresh your board' },
+  'tip.6': { zh: '每次启动程序会自动生成战报摘要', en: 'A daily summary is generated automatically on startup' },
+  'tip.7': { zh: '简易模式适合快速记录待办，详细模式适合精细管理', en: 'Simple mode for quick todos, full mode for detailed management' },
+  // 删除确认
+  'confirm.deleteTask': { zh: '此操作将永久删除主任务及其所有子任务，不可恢复。是否继续？', en: 'This will permanently delete the main task and all its sub-tasks. Continue?' },
+  'confirm.deleteOk': { zh: '确认删除', en: 'Delete' },
+  // 错误边界
+  'err.title': { zh: '界面出现了一点问题', en: 'Something went wrong' },
+  'err.desc': { zh: '请尝试刷新页面。如果问题持续，请重启软件。', en: 'Please refresh the page. If the issue persists, restart the app.' },
+  'err.reload': { zh: '刷新页面', en: 'Refresh' },
+  // 导入失败
+  'data.importFail': { zh: '导入失败', en: 'Import failed' },
+  // 关于页名言（孙海鸥老师）
+  'about.quote': { zh: '教育是微光吸引微光、微光照亮微光、微光点燃微光、彼此温暖，彼此成全，同向同行，一起发光的过程。', en: 'Education is glimmers attracting glimmers, glimmers lighting glimmers, glimmers igniting glimmers - warming each other, fulfilling each other, walking the same path and shining together.' },
+  'about.quoteAuthor': { zh: '孙海鸥老师', en: 'Sunny Sun' },
+  // 名人名言（9 条，中英双语）
+  'quote.1': { zh: '我没有时间考虑过去，我只考虑未来。', en: 'I have no time to dwell on the past; I only think about the future.' },
+  'quote.2': { zh: '即使是看上去无法实现的艰难目标，只要有计划地应对，就会将它实现，即使是毫无章法的事情也能够在短时间内完成。', en: 'Even seemingly impossible goals can be achieved with a plan; even chaotic tasks can be finished quickly.' },
+  'quote.3': { zh: '我现在就是要凭借我们的新产品，迈出缔造10年辉煌的第一步。等到10年后，我们公司的知名度一定会不亚于你们公司。', en: 'With our new product, we now take the first step toward a decade of glory. In ten years, our company will be as well known as yours.' },
+  'quote.4': { zh: '教育是微光吸引微光、微光照亮微光、微光点燃微光、彼此温暖，彼此成全，同向同行，一起发光的过程。', en: 'Education is glimmers attracting glimmers, glimmers lighting glimmers, glimmers igniting glimmers - warming each other, fulfilling each other, walking the same path and shining together.' },
+  'quote.5': { zh: '有两样东西比活着更加重要，一谓之尊严，一谓之价值。', en: 'Two things matter more than living: dignity, and value.' },
+  'quote.6': { zh: '你将水倒入瓶子，水就变成了瓶子。你将水倒入茶壶，水就变成了茶壶。水既能静静流动，也能汹涌冲击。做水一样的人吧，我的朋友。', en: 'Pour water into a bottle and it becomes the bottle. Pour it into a teapot and it becomes the teapot. Water can flow quietly or crash fiercely. Be like water, my friend.' },
+  'quote.7': { zh: '保持冷静，继续前行。', en: 'Keep calm and carry on.' },
+  'quote.8': { zh: '成功不是终点，失败也并非末日，最重要的是继续前进的勇气。', en: 'Success is not final, failure is not fatal: it is the courage to continue that counts.' },
+  'quote.9': { zh: '善良人在追求中纵然迷惘，却终将意识到正确的道路。', en: 'The kind one, though lost in pursuit, will eventually find the right path.' },
+  'quote.a1': { zh: '钱学森', en: 'Qian Xuesen' },
+  'quote.a2': { zh: '井深大', en: 'Masaru Ibuka' },
+  'quote.a3': { zh: '盛田昭夫', en: 'Akio Morita' },
+  'quote.a4': { zh: '孙海鸥老师', en: 'Sunny Sun' },
+  'quote.a5': { zh: '刘睿', en: 'Liu Rui' },
+  'quote.a6': { zh: '李小龙', en: 'Bruce Lee' },
+  'quote.a7': { zh: '英国二战宣传海报', en: 'British WWII poster' },
+  'quote.a8': { zh: '丘吉尔', en: 'Winston Churchill' },
+  'quote.a9': { zh: '《浮士德》', en: 'Faust' },
 };
+
+// 名言列表（key -> 作者 key）
+export const QUOTES: { q: string; a: string }[] = [
+  { q: 'quote.1', a: 'quote.a1' },
+  { q: 'quote.2', a: 'quote.a2' },
+  { q: 'quote.3', a: 'quote.a3' },
+  { q: 'quote.4', a: 'quote.a4' },
+  { q: 'quote.5', a: 'quote.a5' },
+  { q: 'quote.6', a: 'quote.a6' },
+  { q: 'quote.7', a: 'quote.a7' },
+  { q: 'quote.8', a: 'quote.a8' },
+  { q: 'quote.9', a: 'quote.a9' },
+];
 
 // 9 个主题可覆盖文案键（theme.json 中以 key-zh / key-en 提供）
 export const OVERRIDABLE_KEYS = [

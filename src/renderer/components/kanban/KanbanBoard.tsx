@@ -7,6 +7,7 @@ import { useLang } from '../../context/LanguageContext';
 import { statusText } from '../../i18n';
 import type { AppMode } from '../../context/ModeContext';
 import { compareThemrpr, formatThemrprTooltip, formatThemrprCell, THEMRPR_FIELDS } from '../../utils/themrpr-utils';
+import { QUOTES } from '../../i18n';
 import ThemeBackground from '../common/ThemeBackground';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -31,31 +32,15 @@ const KanbanBoard: React.FC<{
 }> = ({ mode, tasks, loading, selectedTask, selectedSubTask, onSelectTask, onEditTask }) => {
   const { theme } = useTheme();
   const { t, lang } = useLang();
-  const [quotes, setQuotes] = React.useState<{ quote: string; author: string }[]>([]);
-  const [quote, setQuote] = React.useState<{ quote: string; author: string } | null>(null);
+  const [quotes] = React.useState(QUOTES);
+  const [quote, setQuote] = React.useState<{ q: string; a: string } | null>(null);
   const [tip, setTip] = React.useState('');
-  const TIPS = [
-    '试试用"项目"视图来组织你的大型战役',
-    'AI助理可以帮你从一段话里自动生成任务',
-    '双击任务可以快速编辑它的详情',
-    '在子任务之间设置"后序"，可以形成工作流水线',
-    '切换主题可以让你的看板焕然一新',
-    '每天设定一个"每日总结时间"，系统会定时生成战报',
-    '简易模式适合快速记录待办，详细模式适合精细管理',
-  ];
-
-  React.useEffect(() => {
-    fetch('/themes/quotes.json')
-      .then(r => r.json())
-      .then((q: any[]) => { setQuotes(q); })
-      .catch(() => {
-        setQuotes([{ quote: '教育是微光吸引微光、微光照亮微光、微光点燃微光、彼此温暖，彼此成全，同向同行，一起发光的过程。', author: '孙海鸥老师' }]);
-      });
-  }, []);
+  const TIPS = ['tip.1', 'tip.2', 'tip.3', 'tip.4', 'tip.5', 'tip.6', 'tip.7'];
 
   React.useEffect(() => {
     if (tasks.length === 0 && quotes.length > 0) {
-      setQuote(quotes[Math.floor(Math.random() * quotes.length)]);
+      const pick = quotes[Math.floor(Math.random() * quotes.length)];
+      setQuote(pick);
       setTip(TIPS[Math.floor(Math.random() * TIPS.length)]);
     }
   }, [tasks, quotes]);
@@ -154,10 +139,10 @@ const KanbanBoard: React.FC<{
           ) : quote ? (
             <>
               <div style={{ fontSize: 18, color: 'var(--color-text-primary)', textAlign: 'center', maxWidth: 500, lineHeight: 2, fontStyle: 'italic' }}>
-                "{quote.quote}"
+                "{t(quote.q)}"
               </div>
               <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginTop: 16 }}>
-                —— {quote.author}
+                —— {t(quote.a)}
               </div>
             </>
           ) : (
@@ -166,7 +151,7 @@ const KanbanBoard: React.FC<{
           {!loading && tip && (
             <div style={{ fontSize: 13, color: 'var(--color-accent)', marginTop: 20,
               background: 'var(--color-bg-hover)', padding: '8px 16px', borderRadius: 6 }}>
-              💡 {tip}
+              💡 {t(tip)}
             </div>
           )}
         </div>

@@ -1,0 +1,40 @@
+[
+  {
+    "version": "1.0.1",
+    "date": "2026-08-17",
+    "changes": [
+      "Security: server now listens on 127.0.0.1 only - LAN devices cannot access it",
+      "Security: CORS restricted to local origins - malicious web pages cannot read API data cross-origin",
+      "Security: DeepSeek key no longer stored in plaintext - encrypted file + in-memory unlock only",
+      "Security: access token verification - blind cross-site requests to local APIs are fully blocked",
+      "Fix: NW.js background processes lingering after closing the window (second launch unresponsive)",
+      "Fix: task export switched to CSV download (UTF-8 BOM, opens directly in Excel), content verified",
+      "Cleanup: removed legacy Electron source, runtime and build toolchain (~500MB)",
+      "Cleanup: removed Claude Code related files and documentation wording"
+    ]
+  },
+  {
+    "version": "1.0.0",
+    "date": "2026-08-05",
+    "changes": [
+      "Task lifecycle: daily_records mechanism - in-progress/paused tasks carry over across days, completed/cancelled stay on their date",
+      "Project board: four drag-and-drop columns (Paused/Cancelled/In Progress/Completed), @dnd-kit, double-click to edit",
+      "Sub-task chains: set the next sub-task (uniqueness + cycle detection), auto-jump after completion, finished ones skipped",
+      "Auto status derivation: with sub-tasks the main status derives from them; manual otherwise",
+      "Status sync rules: 12 drag sync rules; saving distinguishes manual status change from sub-task changes",
+      "AI assistant 3-step flow: natural language parsing → follow-up questions → create one by one, with multi-task split",
+      "Review system: retrospectives table, plan vs actual in 8 dimensions, Markdown export per task/project",
+      "Themes: 4 built-in themes (Deep Blue / Dark Green / Warm Orange / Light Gray), CSS variables, custom themes without compiling",
+      "Simple/full modes: first-launch guide, switchable anytime; simple mode hides THEMRPR and sub-tasks",
+      "Backup & restore: database download/upload with SQLite header validation",
+      "Search: full-text search across all dates, AutoComplete dropdown, cross-view jump",
+      "Automated tests: 30 API regression cases, zero dependencies, isolated database",
+      "Duration calculation: remaining = planned - (today - created); overdue shows as 'X days overdue'",
+      "Numbering: letters computed dynamically per date; history unaffected",
+      "Date navigation: week/month switching + weekday selector",
+      "Board table: main tasks / sub-tasks / THEMRPR inheritance logic",
+      "Bottom actions: create / complete / abandon / delete + automatic progress reports",
+      "Port conflicts handled: multi-port fallback + auto-exit when the parent process quits"
+    ]
+  }
+]

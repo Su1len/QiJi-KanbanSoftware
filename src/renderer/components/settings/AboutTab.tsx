@@ -15,7 +15,7 @@ const AboutTab: React.FC = () => {
     if (changelog) { setExpanded(!expanded); return; }
     setLoading(true);
     try {
-      const resp = await fetch('/themes/changelog.json');
+      const resp = await fetch(`/themes/changelog-${lang}.json`);
       const data = await resp.json();
       setChangelog(data);
       setExpanded(true);
@@ -46,8 +46,8 @@ const AboutTab: React.FC = () => {
         color: 'var(--color-text-secondary)', fontSize: 14,
         borderLeft: '3px solid var(--color-accent)',
       }}>
-        "教育是微光吸引微光、微光照亮微光、微光点燃微光、彼此温暖，彼此成全，同向同行，一起发光的过程。"
-        <div style={{ marginTop: 8, fontStyle: 'normal', fontWeight: 500 }}>—— 孙海鸥老师</div>
+        "{t('about.quote')}"
+        <div style={{ marginTop: 8, fontStyle: 'normal', fontWeight: 500 }}>—— {t('about.quoteAuthor')}</div>
       </div>
 
       <Button icon={<HistoryOutlined />} onClick={loadChangelog} loading={loading}>
