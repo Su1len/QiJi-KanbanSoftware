@@ -29,7 +29,7 @@ const SERVER_JS = path.join(__dirname, 'dist', 'server', 'index.js');
 const AI_KEY = process.env.QIJI_DEEPSEEK_API_KEY;
 
 // ─── 工具函数 ──────────────────────────────────────────
-function request(method, pathStr, body) {
+function request(method, pathStr, body, extraHeaders) {
   return new Promise((resolve, reject) => {
     const url = new URL(pathStr, `http://localhost:${BASE_PORT}`);
     const options = {
@@ -37,7 +37,7 @@ function request(method, pathStr, body) {
       hostname: url.hostname,
       port: url.port,
       path: url.pathname + url.search,
-      headers: { 'Content-Type': 'application/json' },
+      headers: Object.assign({ 'Content-Type': 'application/json' }, extraHeaders || {}),
       timeout: 15000,
     };
     const req = http.request(options, (res) => {
@@ -605,6 +605,67 @@ async function runTests() {
       `name=${t6?.name}`);
   } else {
     console.log('  [SKIP] AI 测试套件 — 未设置 QIJI_DEEPSEEK_API_KEY');
+  }
+
+  // ── 用例 36-39：服务端错误文案国际化（V1.0.1） ──
+  {
+    const rZh = await get('/api/report/summary?since=bad-date');
+    const rEn = await request('GET', '/api/report/summary?since=bad-date', undefined, { 'X-Lang': 'en' });
+    const ok = rZh.status === 400 && rZh.body.error === '参数格式错误'
+      && rEn.status === 400 && rEn.body.error === 'Invalid parameter format.';
+    record('错误文案国际化（param.invalid zh/en）', ok,
+      `zh="${rZh.body.error}" en="${rEn.body.error}"`);
+  }
+  {
+    const rZh = await request('PUT', `/api/sub-tasks/${subAId}/next`, { nextSubTaskId: subAId });
+    const rEn = await request('PUT', `/api/sub-tasks/${subAId}/next`, { nextSubTaskId: subAId }, { 'X-Lang': 'en' });
+    const ok = rZh.status === 200 && rZh.body.success === false && rZh.body.error === '不能设置循环后序引用'
+      && rEn.status === 200 && rEn.body.success === false && rEn.body.error === 'Circular next-reference is not allowed.';
+    record('错误文案国际化（next.cycle zh/en）', ok,
+      `zh="${rZh.body.error}" en="${rEn.body.error}"`);
+  }
+
+  // ── 用例 38-42：状态变更历史（V1.0.1） ──
+  {
+    // 主任务无子任务场景走 moveTask 直接更新；自建一个任务避免与早期用例冲突
+    const { body: created } = await post('/api/main-tasks', {
+      name: '历史测试任务',
+      content: '测试内容',
+      priority: 5,
+      status: '进行中',
+      task_date: TEST_DATE,
+      sub_tasks: [],
+    });
+    const histTaskId = created.id;
+    await put(`/api/main-tasks/${histTaskId}/move`, { status: '暂搁置' });
+    const { status, body } = await get(`/api/status-history?taskType=main&taskId=${histTaskId}`);
+    const ok = status === 200 && Array.isArray(body) && body.some(h => h.from_status === '进行中' && h.to_status === '暂搁置');
+    record('状态历史记录（主任务 moveTask）', ok,
+      ok ? `历史条数=${body.length}` : `status=${status}, body=${JSON.stringify(body)}`);
+  }
+  {
+    // 子任务完成：completeSubTask 应写入 sub 历史
+    await post(`/api/sub-tasks/${subBId}/complete`);
+    const { status, body } = await get(`/api/status-history?taskType=sub&taskId=${subBId}`);
+    const ok = status === 200 && Array.isArray(body) && body.some(h => h.to_status === '已完成');
+    record('状态历史记录（子任务 completeSubTask）', ok,
+      ok ? `历史条数=${body.length}` : `status=${status}, body=${JSON.stringify(body)}`);
+  }
+  {
+    // 子任务取消：cancelSubTask 应写入 sub 历史
+    await post(`/api/sub-tasks/${subCId}/cancel`);
+    const { status, body } = await get(`/api/status-history?taskType=sub&taskId=${subCId}`);
+    const ok = status === 200 && Array.isArray(body) && body.some(h => h.to_status === '已取消');
+    record('状态历史记录（子任务 cancelSubTask）', ok,
+      ok ? `历史条数=${body.length}` : `status=${status}, body=${JSON.stringify(body)}`);
+  }
+  {
+    // 子任务更新接口直接改状态也应记录历史
+    await put(`/api/sub-tasks/${subBId}`, { status: '暂搁置' });
+    const { status, body } = await get(`/api/status-history?taskType=sub&taskId=${subBId}`);
+    const ok = status === 200 && Array.isArray(body) && body.some(h => h.from_status === '已完成' && h.to_status === '暂搁置');
+    record('状态历史记录（子任务 updateSubTask）', ok,
+      ok ? `历史条数=${body.length}` : `status=${status}, body=${JSON.stringify(body)}`);
   }
 }
 

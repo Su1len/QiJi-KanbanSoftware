@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { api } from '../utils/api-client';
-import { currentLang } from './LanguageContext';
+import { currentLang } from '../i18n';
 import { useLang } from './LanguageContext';
 
 export interface ColorScheme {

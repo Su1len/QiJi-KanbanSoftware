@@ -3,6 +3,12 @@
 
 export type Lang = 'zh' | 'en';
 
+// 当前界面语言（模块级），供 api-client 等非组件代码读取
+export let currentLang: Lang = 'zh';
+export function setCurrentLang(l: Lang): void {
+  currentLang = l;
+}
+
 export const MSGS: Record<string, { zh: string; en: string }> = {
   // 通用
   'common.loading': { zh: '加载中...', en: 'Loading...' },

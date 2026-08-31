@@ -3,6 +3,8 @@
  * Mirrors the Electron preload API interface for compatibility.
  */
 
+import { currentLang } from '../i18n';
+
 const BASE = '';
 const TIMEOUT_MS = 15000;
 
@@ -18,10 +20,16 @@ function getSessionToken(): string {
   }
 }
 
+// 当前语言标识：随请求头 X-Lang 传给服务端，使服务端错误文案跟随语言
+function getLangHeader(): string {
+  return currentLang;
+}
+
 function buildHeaders(): Record<string, string> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const token = getSessionToken();
   if (token) headers['X-Kanban-Token'] = token;
+  headers['X-Lang'] = getLangHeader();
   return headers;
 }
 

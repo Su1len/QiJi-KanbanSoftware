@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+﻿import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { api } from '../utils/api-client';
 import type { Lang } from '../i18n';
-import { tr, trFmt } from '../i18n';
+import { tr, trFmt, setCurrentLang } from '../i18n';
 
 interface LanguageContextValue {
   lang: Lang;
@@ -17,9 +17,6 @@ const LanguageContext = createContext<LanguageContextValue>({
   tf: (k) => k,
 });
 
-// 模块级当前语言，供非组件代码（如 ThemeContext.t）读取
-export let currentLang: Lang = 'zh';
-
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [lang, setLangState] = useState<Lang>('zh');
   const [loaded, setLoaded] = useState(false);
@@ -28,7 +25,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     api.getSetting('lang').then(v => {
       if (v === 'zh' || v === 'en') {
         setLangState(v);
-        currentLang = v;
+        setCurrentLang(v);
       }
       setLoaded(true);
     }).catch(() => setLoaded(true));
@@ -37,7 +34,7 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const setLang = useCallback(async (l: Lang) => {
     await api.setSetting('lang', l);
     setLangState(l);
-    currentLang = l;
+    setCurrentLang(l);
   }, []);
 
   const t = useCallback((key: string) => tr(key, lang), [lang]);

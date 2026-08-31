@@ -1,7 +1,6 @@
 import React from 'react';
 import { Button, Result } from 'antd';
-import { currentLang } from '../../context/LanguageContext';
-import { tr } from '../../i18n';
+import { currentLang, tr } from '../../i18n';
 
 interface State { hasError: boolean; error: Error | null; }
 

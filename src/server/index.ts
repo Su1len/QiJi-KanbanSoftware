@@ -42,7 +42,9 @@ import {
   countTasksInProject,
   checkpointDatabase,
   getCompletionStats,
+  getStatusHistory,
 } from './database';
+import { te, getReqLang } from './messages';
 
 const app = express();
 const PORT = 3456;
@@ -80,13 +82,13 @@ app.use((req, res, next) => {
   if (token === sessionToken) return next();
   if (!origin) return next();
   if (DEV_ORIGIN.test(origin)) return next();
-  res.status(403).json({ error: '本机令牌验证失败，请从看板界面发起请求' });
+  res.status(403).json({ error: te(getReqLang(req), 'token.fail') });
 });
 
 // Serve the SPA entry with the session token injected.
 // The token is injected as a <meta> tag (NOT an inline script) because the
 // page's CSP (script-src 'self') blocks inline scripts in the browser.
-function serveIndex(res: any): void {
+function serveIndex(req: any, res: any): void {
   try {
     const html = fs.readFileSync(INDEX_HTML_PATH, 'utf8');
     const injected = html.replace(
@@ -96,11 +98,11 @@ function serveIndex(res: any): void {
     res.setHeader('Cache-Control', 'no-store');
     res.send(injected);
   } catch (e: any) {
-    res.status(500).send('界面文件加载失败');
+    res.status(500).send(te(getReqLang(req), 'page.loadFail'));
   }
 }
-app.get('/', (_req, res) => serveIndex(res));
-app.get('/index.html', (_req, res) => serveIndex(res));
+app.get('/', (req, res) => serveIndex(req, res));
+app.get('/index.html', (req, res) => serveIndex(req, res));
 
 // Serve static files from dist/renderer (webpack output)
 app.use(express.static(path.join(__dirname, '..', 'renderer')));
@@ -111,7 +113,7 @@ app.use('/themes', express.static(path.join(__dirname, '..', '..', 'themes')));
 
 app.post('/api/main-tasks', (req, res) => {
   try {
-    const task = createMainTask(req.body);
+    const task = createMainTask(req.body, getReqLang(req));
     res.json(task);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
@@ -156,14 +158,14 @@ app.put('/api/main-tasks/:id', (req, res) => {
     if (req.body.status !== undefined && old && req.body.status !== old.status) {
       moveTask(id, req.body.status);
       const { status, ...rest } = req.body;
-      if (Object.keys(rest).length > 0) updateMainTask(id, rest);
+      if (Object.keys(rest).length > 0) updateMainTask(id, rest, getReqLang(req));
       res.json(getMainTask(id));
     } else if (req.body.status !== undefined) {
       // Status unchanged: just update fields, derive from sub-tasks
-      const task = updateMainTask(id, req.body);
+      const task = updateMainTask(id, req.body, getReqLang(req));
       res.json(task);
     } else {
-      const task = updateMainTask(id, req.body);
+      const task = updateMainTask(id, req.body, getReqLang(req));
       res.json(task);
     }
   } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -187,7 +189,7 @@ app.post('/api/sub-tasks', (req, res) => {
 
 app.put('/api/sub-tasks/:id', (req, res) => {
   try {
-    const task = updateSubTask(Number(req.params.id), req.body);
+    const task = updateSubTask(Number(req.params.id), req.body, getReqLang(req));
     res.json(task);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
@@ -274,11 +276,22 @@ app.put('/api/main-tasks/:id/move', (req, res) => {
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
+// ==================== Status history ====================
+
+app.get('/api/status-history', (req, res) => {
+  try {
+    const taskType = req.query.taskType === 'sub' ? 'sub' : 'main';
+    const taskId = Number(req.query.taskId);
+    if (!taskId) return res.status(400).json({ error: te(getReqLang(req), 'param.invalid') });
+    res.json(getStatusHistory(taskType, taskId));
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 // ==================== SubTask ordering ====================
 
 app.put('/api/sub-tasks/:id/next', (req, res) => {
   try {
-    const result = setNextSubTask(Number(req.params.id), req.body.nextSubTaskId ?? null);
+    const result = setNextSubTask(Number(req.params.id), req.body.nextSubTaskId ?? null, getReqLang(req));
     res.json(result);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
@@ -415,7 +428,7 @@ app.post('/api/crypto/decrypt', (req, res) => {
     const { password } = req.body;
     // 未配置密钥：与"密码错误"区分开，引导用户先保存密钥
     if (!fs.existsSync(KEY_FILE)) {
-      return res.status(400).json({ error: '尚未配置 API 密钥，请先在上方输入密钥和密码并点击保存' });
+      return res.status(400).json({ error: te(getReqLang(req), 'crypto.noKey') });
     }
     const data = Buffer.from(fs.readFileSync(KEY_FILE, 'utf8'), 'base64');
     const salt = data.subarray(0, SALT_LEN);
@@ -430,13 +443,13 @@ app.post('/api/crypto/decrypt', (req, res) => {
       dec = Buffer.concat([decipher.update(enc), decipher.final()]);
     } catch (e) {
       // 解密失败 = 密码错误（或数据损坏），与"未配置"区分提示
-      return res.status(400).json({ error: '密码错误，请重新输入' });
+      return res.status(400).json({ error: te(getReqLang(req), 'crypto.wrongPw') });
     }
     const plain = dec.toString('utf8');
     // Unlock in memory so the AI assistant can use the key during this session.
     unlockedApiKey = plain;
     res.json({ value: plain });
-  } catch (e: any) { res.status(500).json({ error: '密钥数据损坏，请重新保存' }); }
+  } catch (e: any) { res.status(500).json({ error: te(getReqLang(req), 'crypto.corrupt') }); }
 });
 
 app.get('/api/crypto/has-key', (req, res) => {
@@ -454,7 +467,7 @@ app.get('/api/report/summary', (req, res) => {
   try {
     const since = String(req.query.since || '');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(since)) {
-      return res.status(400).json({ error: '参数格式错误' });
+      return res.status(400).json({ error: te(getReqLang(req), 'param.invalid') });
     }
     const stats = getCompletionStats(since + 'T00:00:00.000Z');
     res.json(stats);
@@ -533,7 +546,7 @@ const DB_FILE = path.join(__dirname, '..', '..', 'data', 'kanban.db');
 
 app.get('/api/backup/download', (req, res) => {
   try {
-    if (!fs.existsSync(DB_FILE)) { res.status(404).json({ error: '数据库文件不存在' }); return; }
+    if (!fs.existsSync(DB_FILE)) { res.status(404).json({ error: te(getReqLang(req), 'backup.noDb') }); return; }
     // Flush WAL to the main file first, otherwise the exported copy is missing
     // all recent data (the main file alone is just an empty header with WAL).
     checkpointDatabase();
@@ -543,18 +556,18 @@ app.get('/api/backup/download', (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename=qiji-kanban-${dateStr}.db`);
     const stream = fs.createReadStream(DB_FILE);
     stream.pipe(res);
-    stream.on('error', () => { res.status(500).json({ error: '文件读取失败' }); });
+    stream.on('error', () => { res.status(500).json({ error: te(getReqLang(req), 'backup.readFail') }); });
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 app.post('/api/backup/upload', (req, res) => {
   try {
     const { fileData, fileName } = req.body;
-    if (!fileData) { res.status(400).json({ error: '请选择一个数据库文件' }); return; }
+    if (!fileData) { res.status(400).json({ error: te(getReqLang(req), 'backup.noFile') }); return; }
     const buf = Buffer.from(fileData, 'base64');
     // Validate SQLite file header
     if (buf.slice(0, 16).toString('utf8') !== 'SQLite format 3 ') {
-      res.status(400).json({ error: '无效的数据库文件' }); return;
+      res.status(400).json({ error: te(getReqLang(req), 'backup.invalidDb') }); return;
     }
     // Replace current DB
     closeDatabase();
@@ -571,7 +584,7 @@ app.post('/api/backup/upload', (req, res) => {
 app.post('/api/ai/test-key', async (req, res) => {
   try {
     const { apiKey } = req.body;
-    if (!apiKey) { res.status(400).json({ error: '请提供 API 密钥' }); return; }
+    if (!apiKey) { res.status(400).json({ error: te(getReqLang(req), 'ai.noKey') }); return; }
     const OpenAI = require('openai');
     const client = new OpenAI({ baseURL: 'https://api.deepseek.com', apiKey });
     await client.chat.completions.create({
@@ -581,7 +594,7 @@ app.post('/api/ai/test-key', async (req, res) => {
     });
     res.json({ success: true });
   } catch (e: any) {
-    res.status(400).json({ error: '密钥验证失败，请检查密钥是否正确或网络是否通畅' });
+    res.status(400).json({ error: te(getReqLang(req), 'ai.keyFail') });
   }
 });
 
@@ -590,12 +603,12 @@ app.post('/api/ai/test-key', async (req, res) => {
 app.post('/api/ai/parse', async (req, res) => {
   try {
     const { input, history } = req.body;
-    if (!input) return res.status(400).json({ error: '请输入任务描述' });
+    if (!input) return res.status(400).json({ error: te(getReqLang(req), 'ai.noInput') });
     // The key is read from the in-memory unlocked copy only (decrypted from the
     // encrypted file when the user saved/unlocked it). No plaintext in the database.
     const apiKey = unlockedApiKey;
     if (!apiKey) {
-      return res.status(400).json({ error: 'API 密钥尚未解锁：请打开"设置 → API 密钥管理"，输入访问密码并点击"查看/修改"解锁' });
+      return res.status(400).json({ error: te(getReqLang(req), 'ai.locked') });
     }
 
     const OpenAI = require('openai');
@@ -659,7 +672,7 @@ app.post('/api/ai/parse', async (req, res) => {
 
 app.get('*', (req, res, next) => {
   if (!req.path.startsWith('/api')) {
-    serveIndex(res);
+    serveIndex(req, res);
   } else {
     next();
   }

@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import * as path from 'path';
 import * as fs from 'fs';
+import { te, type ServerLang } from './messages';
 
 const DB_DIR = path.join(__dirname, '..', '..', 'data');
 const DB_PATH = path.join(DB_DIR, 'kanban.db');
@@ -104,6 +105,19 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_progress_reports_main ON progress_reports(main_task_id);
   `);
 
+  // 状态变更历史表（V1.0.1，向后兼容迁移，不做历史回填）
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS status_change_history (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id     INTEGER NOT NULL,
+      task_type   TEXT    NOT NULL,
+      from_status TEXT,
+      to_status   TEXT    NOT NULL,
+      changed_at  TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_status_history_task ON status_change_history(task_type, task_id, changed_at);
+  `);
+
   // Migration: add next_sub_task_id if not exists
   try { db.exec('ALTER TABLE sub_tasks ADD COLUMN next_sub_task_id INTEGER DEFAULT NULL'); } catch(e) {}
   // Migration: project fields
@@ -168,9 +182,32 @@ function reassignLettersForDate(date: string): void {
   })();
 }
 
+// ---- 统一状态更新入口（V1.0.1）----
+// 所有状态变更都必须经过此函数：更新状态 + 记录历史 + 更新时间戳。
+export type TaskType = 'main' | 'sub';
+
+export function applyStatusChange(taskId: number, taskType: TaskType, fromStatus: string | null, toStatus: string): void {
+  const ts = now();
+  if (taskType === 'main') {
+    db.prepare('UPDATE main_tasks SET status = ?, status_changed_at = ?, updated_at = ? WHERE id = ?')
+      .run(toStatus, ts, ts, taskId);
+  } else {
+    db.prepare('UPDATE sub_tasks SET status = ?, status_changed_at = ?, updated_at = ? WHERE id = ?')
+      .run(toStatus, ts, ts, taskId);
+  }
+  db.prepare('INSERT INTO status_change_history (task_id, task_type, from_status, to_status, changed_at) VALUES (?, ?, ?, ?, ?)')
+    .run(taskId, taskType, fromStatus, toStatus, ts);
+}
+
+export function getStatusHistory(taskType: TaskType, taskId: number): any[] {
+  return db.prepare(
+    'SELECT * FROM status_change_history WHERE task_type = ? AND task_id = ? ORDER BY changed_at ASC, id ASC'
+  ).all(taskType, taskId);
+}
+
 // ---- Main Tasks ----
 
-export function createMainTask(data: any) {
+export function createMainTask(data: any, lang: ServerLang = 'zh') {
   const letter = getNextLetter(data.task_date);
   const timestamp = now();
   const doCreate = db.transaction(() => {
@@ -204,7 +241,7 @@ export function createMainTask(data: any) {
     });
     subTasks.forEach((st, i) => {
       if (st.nextIndex != null && indexToId[i] && indexToId[st.nextIndex]) {
-        setNextSubTask(indexToId[i], indexToId[st.nextIndex]);
+        setNextSubTask(indexToId[i], indexToId[st.nextIndex], lang);
       }
     });
     return mainTaskId;
@@ -253,21 +290,23 @@ export function getMainTaskWithSubs(id: number) {
   return { ...mainTask, sub_tasks: subTasks };
 }
 
-export function updateMainTask(id: number, data: any) {
+export function updateMainTask(id: number, data: any, lang: ServerLang = 'zh') {
   const doUpdate = db.transaction(() => {
+    // 状态变更走统一入口（记录历史 + 时间戳）
+    if (data.status !== undefined) {
+      const old = db.prepare('SELECT status FROM main_tasks WHERE id = ?').get(id) as any;
+      if (old && old.status !== data.status) {
+        applyStatusChange(id, 'main', old.status, data.status);
+      }
+    }
     const fields: string[] = [];
     const values: any = { id };
-    const skipKeys = new Set(['sub_tasks']);
+    const skipKeys = new Set(['sub_tasks', 'status']);
     for (const [key, value] of Object.entries(data)) {
       if (value !== undefined && !skipKeys.has(key)) {
         fields.push(`${key} = @${key}`);
         values[key] = value;
       }
-    }
-    // 状态变更时间戳（V1.0.1）
-    if (data.status !== undefined) {
-      fields.push('status_changed_at = @status_changed_at');
-      values.status_changed_at = now();
     }
     if (fields.length > 0) {
       fields.push('updated_at = @updated_at');
@@ -295,7 +334,7 @@ export function updateMainTask(id: number, data: any) {
             hints: (st as any).hints || null,
             approach: (st as any).approach || null,
             relevants: (st as any).relevants || null,
-          });
+          }, lang);
         } else if (st.name && st.name.trim()) {
           const created = createSubTask({
             main_task_id: id, name: st.name.trim(), sort_order: i,
@@ -309,7 +348,7 @@ export function updateMainTask(id: number, data: any) {
       });
       subTasks.forEach((st, i) => {
         if (st.nextIndex != null && indexToRealId[i] && indexToRealId[st.nextIndex]) {
-          setNextSubTask(indexToRealId[i]!, indexToRealId[st.nextIndex]!);
+          setNextSubTask(indexToRealId[i]!, indexToRealId[st.nextIndex]!, lang);
         }
       });
       updateMainTaskStatus(id);
@@ -347,31 +386,38 @@ export function createSubTask(data: any) {
   return db.prepare('SELECT * FROM sub_tasks WHERE id = ?').get(result.lastInsertRowid);
 }
 
-export function updateSubTask(id: number, data: any) {
+export function updateSubTask(id: number, data: any, lang: ServerLang = 'zh') {
   // Validate next_sub_task_id if present (same checks as setNextSubTask)
   if ('next_sub_task_id' in data) {
-    const result = setNextSubTask(id, data.next_sub_task_id);
+    const result = setNextSubTask(id, data.next_sub_task_id, lang);
     if (!result.success) {
       throw new Error(result.error);
     }
   }
+  // 状态变更走统一入口（记录历史 + 时间戳 + 完成时间）
+  if (data.status !== undefined) {
+    const st = db.prepare('SELECT status, main_task_id FROM sub_tasks WHERE id = ?').get(id) as any;
+    if (st && st.status !== data.status) {
+      applyStatusChange(id, 'sub', st.status, data.status);
+      if (data.status === '已完成') {
+        db.prepare('UPDATE sub_tasks SET completed_at = ? WHERE id = ?').run(now(), id);
+      }
+    }
+  }
   const fields: string[] = [];
   const values: any = { id };
+  const skipKeys = new Set(['status']);
   for (const [key, value] of Object.entries(data)) {
-    if (value !== undefined) {
+    if (value !== undefined && !skipKeys.has(key)) {
       fields.push(`${key} = @${key}`);
       values[key] = value;
     }
   }
-  // 状态变更时间戳（V1.0.1）
-  if (data.status !== undefined) {
-    fields.push('status_changed_at = @status_changed_at');
-    values.status_changed_at = now();
+  if (fields.length > 0) {
+    fields.push('updated_at = @updated_at');
+    values.updated_at = now();
+    db.prepare(`UPDATE sub_tasks SET ${fields.join(', ')} WHERE id = @id`).run(values);
   }
-  if (fields.length === 0) return db.prepare('SELECT * FROM sub_tasks WHERE id = ?').get(id);
-  fields.push('updated_at = @updated_at');
-  values.updated_at = now();
-  db.prepare(`UPDATE sub_tasks SET ${fields.join(', ')} WHERE id = @id`).run(values);
   // If status changed, re-evaluate main task status
   if (data.status !== undefined) {
     const st = db.prepare('SELECT main_task_id FROM sub_tasks WHERE id = ?').get(id) as any;
@@ -384,8 +430,8 @@ export function completeSubTask(id: number): void {
   const subTask = db.prepare('SELECT * FROM sub_tasks WHERE id = ?').get(id) as any;
   if (!subTask) return;
   const timestamp = now();
-  db.prepare('UPDATE sub_tasks SET status = ?, completed_at = ?, status_changed_at = ?, updated_at = ? WHERE id = ?')
-    .run('已完成', timestamp, timestamp, timestamp, id);
+  applyStatusChange(id, 'sub', subTask.status, '已完成');
+  db.prepare('UPDATE sub_tasks SET completed_at = ? WHERE id = ?').run(timestamp, id);
   const mainTask = db.prepare('SELECT * FROM main_tasks WHERE id = ?').get(subTask.main_task_id) as any;
   if (!mainTask) return;
   const startTime = new Date(mainTask.created_at).getTime();
@@ -403,10 +449,11 @@ export function completeSubTask(id: number): void {
 }
 
 export function cancelSubTask(id: number): void {
-  db.prepare('UPDATE sub_tasks SET status = ?, status_changed_at = ?, updated_at = ? WHERE id = ?')
-    .run('已取消', now(), now(), id);
-  const st = db.prepare('SELECT main_task_id FROM sub_tasks WHERE id = ?').get(id) as any;
-  if (st) updateMainTaskStatus(st.main_task_id);
+  const st = db.prepare('SELECT status, main_task_id FROM sub_tasks WHERE id = ?').get(id) as any;
+  if (st) {
+    applyStatusChange(id, 'sub', st.status, '已取消');
+    updateMainTaskStatus(st.main_task_id);
+  }
 }
 
 function deriveMainTaskStatus(subTasks: any[]): string | null {
@@ -422,7 +469,10 @@ function updateMainTaskStatus(mainTaskId: number): void {
   const subs = db.prepare('SELECT status FROM sub_tasks WHERE main_task_id = ?').all(mainTaskId) as any[];
   const derived = deriveMainTaskStatus(subs);
   if (derived) {
-    db.prepare('UPDATE main_tasks SET status = ?, updated_at = ? WHERE id = ?').run(derived, now(), mainTaskId);
+    const old = db.prepare('SELECT status FROM main_tasks WHERE id = ?').get(mainTaskId) as any;
+    if (!old || old.status !== derived) {
+      applyStatusChange(mainTaskId, 'main', old ? old.status : null, derived);
+    }
   }
 }
 
@@ -473,21 +523,21 @@ export function deleteSetting(key: string): void {
 
 // ---- SubTask ordering (next_sub_task_id) ----
 
-export function setNextSubTask(subTaskId: number, nextId: number | null): { success: boolean; error?: string } {
+export function setNextSubTask(subTaskId: number, nextId: number | null, lang: ServerLang = 'zh'): { success: boolean; error?: string } {
   if (nextId !== null) {
     // Check uniqueness: no other sub-task should point to the same nextId
     const existing = db.prepare(
       'SELECT id FROM sub_tasks WHERE next_sub_task_id = ? AND id != ?'
     ).get(nextId, subTaskId) as any;
     if (existing) {
-      return { success: false, error: '该子任务已被其他任务指定为后序，请重新选择' };
+      return { success: false, error: te(lang, 'next.duplicate') };
     }
     // Cycle detection: follow the chain from nextId, ensure it doesn't reach subTaskId
     let cursor: number | null = nextId;
     const visited = new Set<number>();
     while (cursor !== null) {
       if (cursor === subTaskId) {
-        return { success: false, error: '不能设置循环后序引用' };
+        return { success: false, error: te(lang, 'next.cycle') };
       }
       if (visited.has(cursor)) break;
       visited.add(cursor);
@@ -657,15 +707,17 @@ export function pinProject(projectName: string, pinned: number): void {
 }
 
 export function completeProject(projectName: string): void {
-  db.prepare(
-    "UPDATE main_tasks SET status = '已取消', updated_at = ? WHERE project_name = ? AND status = '进行中'"
-  ).run(now(), projectName);
+  const rows = db.prepare(
+    "SELECT id, status FROM main_tasks WHERE project_name = ? AND status = '进行中'"
+  ).all(projectName) as any[];
+  for (const r of rows) applyStatusChange(r.id, 'main', r.status, '已取消');
 }
 
 export function reopenProject(projectName: string): void {
-  db.prepare(
-    "UPDATE main_tasks SET status = '进行中', updated_at = ? WHERE project_name = ? AND status IN ('已取消', '暂搁置')"
-  ).run(now(), projectName);
+  const rows = db.prepare(
+    "SELECT id, status FROM main_tasks WHERE project_name = ? AND status IN ('已取消', '暂搁置')"
+  ).all(projectName) as any[];
+  for (const r of rows) applyStatusChange(r.id, 'main', r.status, '进行中');
 }
 
 export function moveTask(id: number, newStatus: string): void {
@@ -698,18 +750,18 @@ export function moveTask(id: number, newStatus: string): void {
 
   if (hasSubs && rule) {
     rule.from.forEach(fromStatus => {
-      db.prepare('UPDATE sub_tasks SET status = ?, status_changed_at = ?, updated_at = ? WHERE main_task_id = ? AND status = ?')
-        .run(rule.to, now(), now(), id, fromStatus);
+      const targets = db.prepare('SELECT id, status FROM sub_tasks WHERE main_task_id = ? AND status = ?').all(id, fromStatus) as any[];
+      targets.forEach(t => applyStatusChange(t.id, 'sub', t.status, rule.to));
     });
     // Step 2: Derive final main task status from sub-tasks
     const refreshed = db.prepare('SELECT status FROM sub_tasks WHERE main_task_id = ?').all(id) as any[];
     const derived = deriveMainTaskStatus(refreshed);
     if (derived) {
-      db.prepare('UPDATE main_tasks SET status = ?, status_changed_at = ?, updated_at = ? WHERE id = ?').run(derived, now(), now(), id);
+      applyStatusChange(id, 'main', oldStatus, derived);
     }
   } else if (!hasSubs) {
     // No sub-tasks: directly update main task status
-    db.prepare('UPDATE main_tasks SET status = ?, status_changed_at = ?, updated_at = ? WHERE id = ?').run(newStatus, now(), now(), id);
+    applyStatusChange(id, 'main', oldStatus, newStatus);
   }
 }
 
