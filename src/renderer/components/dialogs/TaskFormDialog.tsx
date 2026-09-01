@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Form, Input, Select, Button, Row, Col, InputNumber, Tooltip, AutoComplete, message } from 'antd';
+import { Modal, Form, Input, Select, Button, Row, Col, InputNumber, Tooltip, AutoComplete, DatePicker, message } from 'antd';
 import { PlusOutlined, DeleteOutlined, QuestionCircleOutlined, DownOutlined, RightOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
 import type { MainTask } from '../../App';
 import type { AppMode } from '../../context/ModeContext';
 import { useLang } from '../../context/LanguageContext';
@@ -33,6 +34,8 @@ interface SubTaskFormItem {
   approach?: string;
   relevants?: string;
   status?: string;
+  start_date?: string | null;
+  end_date?: string | null;
 }
 
 const STATUS_VALUES = ['进行中', '暂搁置', '已取消', '已完成'];
@@ -61,6 +64,8 @@ const TaskFormDialog: React.FC<{
         purpose: task.purpose, resources: task.resources, duration: task.duration,
         effect: task.effect, hints: task.hints, approach: task.approach,
         relevants: task.relevants, priority: task.priority,
+        start_date: (task as any).start_date ? dayjs((task as any).start_date) : null,
+        end_date: (task as any).end_date ? dayjs((task as any).end_date) : null,
       });
       if (task.sub_tasks) {
         const subs: SubTaskFormItem[] = task.sub_tasks.map(s => {
@@ -75,6 +80,8 @@ const TaskFormDialog: React.FC<{
             duration: s.duration ?? '', effect: s.effect ?? '',
             hints: s.hints ?? '', approach: s.approach ?? '',
             relevants: s.relevants ?? '', status: s.status ?? '',
+            start_date: (s as any).start_date ?? null,
+            end_date: (s as any).end_date ?? null,
           };
         });
         setSubTasks(subs);
@@ -114,6 +121,8 @@ const TaskFormDialog: React.FC<{
     }
     onSubmit({
       ...values,
+      start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
+      end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
       sub_tasks: subTasks.filter(s => s.name.trim()),
       task_date: selectedDate,
     });
@@ -178,6 +187,19 @@ const TaskFormDialog: React.FC<{
           <Col span={5}>
             <Form.Item name="priority" label={t('form.priority')} initialValue={0}>
               <InputNumber min={0} max={10} style={{ width: '100%' }} placeholder="0-10" />
+            </Form.Item>
+          </Col>
+        </Row>
+
+        <Row gutter={16}>
+          <Col span={8}>
+            <Form.Item name="start_date" label={t('form.startDate')}>
+              <DatePicker style={{ width: '100%' }} placeholder={t('form.startDate')} />
+            </Form.Item>
+          </Col>
+          <Col span={8}>
+            <Form.Item name="end_date" label={t('form.endDate')}>
+              <DatePicker style={{ width: '100%' }} placeholder={t('form.endDate')} />
             </Form.Item>
           </Col>
         </Row>
@@ -292,6 +314,26 @@ const TaskFormDialog: React.FC<{
                             allowClear
                             placeholder={t('form.inherit')}
                             options={statusOptions}
+                          />
+                        </div>
+                      </Col>
+                      <Col span={12}>
+                        <div style={{ marginBottom: 6 }}>
+                          <div style={{ fontSize: 12, marginBottom: 2, color: 'var(--color-text-secondary)' }}>{t('form.startDate')}</div>
+                          <DatePicker size="small" style={{ width: '100%' }}
+                            value={st.start_date ? dayjs(st.start_date) : null}
+                            onChange={v => updateSubTask(i, { start_date: v ? v.format('YYYY-MM-DD') : null })}
+                            placeholder={t('form.startDate')}
+                          />
+                        </div>
+                      </Col>
+                      <Col span={12}>
+                        <div style={{ marginBottom: 6 }}>
+                          <div style={{ fontSize: 12, marginBottom: 2, color: 'var(--color-text-secondary)' }}>{t('form.endDate')}</div>
+                          <DatePicker size="small" style={{ width: '100%' }}
+                            value={st.end_date ? dayjs(st.end_date) : null}
+                            onChange={v => updateSubTask(i, { end_date: v ? v.format('YYYY-MM-DD') : null })}
+                            placeholder={t('form.endDate')}
                           />
                         </div>
                       </Col>

@@ -126,6 +126,11 @@ export function initDatabase(): void {
   // Migration: status change timestamps (V1.0.1, backward compatible)
   try { db.exec('ALTER TABLE main_tasks ADD COLUMN status_changed_at TEXT'); } catch(e) {}
   try { db.exec('ALTER TABLE sub_tasks ADD COLUMN status_changed_at TEXT'); } catch(e) {}
+  // Migration: timeline start/end dates (V1.0.1, backward compatible)
+  try { db.exec('ALTER TABLE main_tasks ADD COLUMN start_date TEXT'); } catch(e) {}
+  try { db.exec('ALTER TABLE main_tasks ADD COLUMN end_date TEXT'); } catch(e) {}
+  try { db.exec('ALTER TABLE sub_tasks ADD COLUMN start_date TEXT'); } catch(e) {}
+  try { db.exec('ALTER TABLE sub_tasks ADD COLUMN end_date TEXT'); } catch(e) {}
 }
 
 function now(): string {
@@ -199,10 +204,92 @@ export function applyStatusChange(taskId: number, taskType: TaskType, fromStatus
     .run(taskId, taskType, fromStatus, toStatus, ts);
 }
 
+// 新建任务初始记录：变更前状态统一使用语言无关标记 'none'（V1.0.1）
+function recordInitialStatus(taskId: number, taskType: TaskType, status: string, timestamp: string): void {
+  db.prepare('INSERT INTO status_change_history (task_id, task_type, from_status, to_status, changed_at) VALUES (?, ?, ?, ?, ?)')
+    .run(taskId, taskType, 'none', status, timestamp);
+}
+
 export function getStatusHistory(taskType: TaskType, taskId: number): any[] {
   return db.prepare(
     'SELECT * FROM status_change_history WHERE task_type = ? AND task_id = ? ORDER BY changed_at ASC, id ASC'
   ).all(taskType, taskId);
+}
+
+// ---- 时间轴视图（V1.0.1）----
+
+// 时间轴行：每个子任务一行；无子任务的主任务单独占一行。
+// start/end 缺省时回退到主任务 task_date（保证新老数据都能渲染）。
+export function getTimelineRows(): any[] {
+  const mains = db.prepare(`
+    SELECT m.*, (SELECT COUNT(*) FROM sub_tasks s WHERE s.main_task_id = m.id) AS sub_count
+    FROM main_tasks m
+    ORDER BY m.task_date ASC, m.created_at ASC
+  `).all() as any[];
+  const rows: any[] = [];
+  for (const m of mains) {
+    const subs = db.prepare(
+      'SELECT * FROM sub_tasks WHERE main_task_id = ? ORDER BY sort_order ASC, created_at ASC'
+    ).all(m.id) as any[];
+    if (subs.length === 0) {
+      rows.push({
+        rowType: 'main',
+        mainId: m.id,
+        mainName: m.name,
+        projectName: m.project_name || null,
+        taskId: m.id,
+        taskName: m.name,
+        status: m.status,
+        startDate: m.start_date || m.task_date,
+        endDate: m.end_date || m.start_date || m.task_date,
+      });
+    } else {
+      for (const s of subs) {
+        rows.push({
+          rowType: 'sub',
+          mainId: m.id,
+          mainName: m.name,
+          projectName: m.project_name || null,
+          taskId: s.id,
+          taskName: s.name,
+          status: s.status,
+          startDate: s.start_date || m.start_date || m.task_date,
+          endDate: s.end_date || s.start_date || m.start_date || m.task_date,
+        });
+      }
+    }
+  }
+  return rows;
+}
+
+export function updateTaskTime(taskType: TaskType, taskId: number, startDate: string, endDate: string): any {
+  const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+  if (!dateRe.test(startDate) || !dateRe.test(endDate) || startDate > endDate) {
+    throw new Error('Invalid date range');
+  }
+  const ts = now();
+  if (taskType === 'main') {
+    const task = db.prepare('SELECT * FROM main_tasks WHERE id = ?').get(taskId) as any;
+    if (!task) return null;
+    db.prepare('UPDATE main_tasks SET start_date = ?, end_date = ?, updated_at = ? WHERE id = ?')
+      .run(startDate, endDate, ts, taskId);
+    // 拖拽规则：结束日期晚于今天 → 状态置为进行中（直接改变主任务状态）
+    if (endDate > localToday() && task.status !== '进行中') {
+      applyStatusChange(taskId, 'main', task.status, '进行中');
+    }
+    return getMainTask(taskId);
+  } else {
+    const sub = db.prepare('SELECT * FROM sub_tasks WHERE id = ?').get(taskId) as any;
+    if (!sub) return null;
+    db.prepare('UPDATE sub_tasks SET start_date = ?, end_date = ?, updated_at = ? WHERE id = ?')
+      .run(startDate, endDate, ts, taskId);
+    // 拖拽规则：结束日期晚于今天 → 子任务置为进行中，并触发主任务状态重新推导
+    if (endDate > localToday() && sub.status !== '进行中') {
+      applyStatusChange(taskId, 'sub', sub.status, '进行中');
+      updateMainTaskStatus(sub.main_task_id);
+    }
+    return db.prepare('SELECT * FROM sub_tasks WHERE id = ?').get(taskId);
+  }
 }
 
 // ---- Main Tasks ----
@@ -212,17 +299,20 @@ export function createMainTask(data: any, lang: ServerLang = 'zh') {
   const timestamp = now();
   const doCreate = db.transaction(() => {
     const result = db.prepare(`
-      INSERT INTO main_tasks (letter, name, content, status, purpose, resources, duration, effect, hints, approach, relevants, priority, project_name, created_at, updated_at, task_date)
-      VALUES (@letter, @name, @content, @status, @purpose, @resources, @duration, @effect, @hints, @approach, @relevants, @priority, @project_name, @created_at, @updated_at, @task_date)
+      INSERT INTO main_tasks (letter, name, content, status, purpose, resources, duration, effect, hints, approach, relevants, priority, project_name, start_date, end_date, created_at, updated_at, task_date)
+      VALUES (@letter, @name, @content, @status, @purpose, @resources, @duration, @effect, @hints, @approach, @relevants, @priority, @project_name, @start_date, @end_date, @created_at, @updated_at, @task_date)
     `).run({
-      letter, name: data.name, content: data.content || '', status: data.status || '进行中',
+      letter, name: data.name, content: data.content || '', status: '进行中',
       purpose: data.purpose || '', resources: data.resources || '', duration: data.duration || '',
       effect: data.effect || '', hints: data.hints || '', approach: data.approach || '',
       relevants: data.relevants || '', priority: data.priority || 0,
       project_name: data.project_name || null,
+      start_date: data.start_date || null, end_date: data.end_date || null,
       created_at: timestamp, updated_at: timestamp, task_date: data.task_date,
     });
     const mainTaskId = result.lastInsertRowid as number;
+    // 初始状态历史（none → 进行中）
+    recordInitialStatus(mainTaskId, 'main', '进行中', timestamp);
     // Create daily record for the task's date
     db.prepare('INSERT OR IGNORE INTO daily_records (main_task_id, task_date, created_at) VALUES (?, ?, ?)').run(mainTaskId, data.task_date, timestamp);
     const subTasks: any[] = data.sub_tasks || [];
@@ -235,6 +325,7 @@ export function createMainTask(data: any, lang: ServerLang = 'zh') {
           duration: st.duration || null, effect: st.effect || null,
           hints: st.hints || null, approach: st.approach || null,
           relevants: st.relevants || null, status: st.status || '进行中',
+          start_date: st.start_date || null, end_date: st.end_date || null,
         }) as any;
         indexToId[i] = created.id;
       }
@@ -247,14 +338,15 @@ export function createMainTask(data: any, lang: ServerLang = 'zh') {
     return mainTaskId;
   });
   const mainTaskId = doCreate();
-  // If status is not the default, sync sub-tasks (Case A for new tasks)
+  // If status is not the default, sync sub-tasks (Case A for new tasks).
+  // 统一走状态入口：无子任务直接记录一次状态变更；有子任务走 moveTask 规则同步。
   const newStatus = data.status || '进行中';
-  if (newStatus !== '进行中' && (data.sub_tasks || []).some((s: any) => s.name?.trim())) {
-    const old = getMainTask(mainTaskId) as any;
-    if (old) {
-      // Force a transition: set status to 进行中 first, then moveTask can apply rules
-      db.prepare('UPDATE main_tasks SET status = ? WHERE id = ?').run('进行中', mainTaskId);
+  if (newStatus !== '进行中') {
+    const hasSubs = (data.sub_tasks || []).some((s: any) => s.name?.trim());
+    if (hasSubs) {
       moveTask(mainTaskId, newStatus);
+    } else {
+      applyStatusChange(mainTaskId, 'main', '进行中', newStatus);
     }
   }
   return getMainTask(mainTaskId);
@@ -334,6 +426,7 @@ export function updateMainTask(id: number, data: any, lang: ServerLang = 'zh') {
             hints: (st as any).hints || null,
             approach: (st as any).approach || null,
             relevants: (st as any).relevants || null,
+            ...((st as any).start_date !== undefined ? { start_date: (st as any).start_date || null, end_date: (st as any).end_date || null } : {}),
           }, lang);
         } else if (st.name && st.name.trim()) {
           const created = createSubTask({
@@ -342,6 +435,7 @@ export function updateMainTask(id: number, data: any, lang: ServerLang = 'zh') {
             duration: st.duration || null, effect: st.effect || null,
             hints: st.hints || null, approach: st.approach || null,
             relevants: st.relevants || null, status: st.status || '进行中',
+            start_date: st.start_date || null, end_date: st.end_date || null,
           }) as any;
           indexToRealId[i] = created.id;
         }
@@ -371,18 +465,22 @@ export function deleteMainTask(id: number): void {
 
 export function createSubTask(data: any) {
   const timestamp = now();
+  const status = data.status || '进行中';
   const result = db.prepare(`
-    INSERT INTO sub_tasks (main_task_id, name, content, status, sort_order, purpose, resources, duration, effect, hints, approach, relevants, priority, created_at, updated_at)
-    VALUES (@main_task_id, @name, @content, @status, @sort_order, @purpose, @resources, @duration, @effect, @hints, @approach, @relevants, @priority, @created_at, @updated_at)
+    INSERT INTO sub_tasks (main_task_id, name, content, status, sort_order, purpose, resources, duration, effect, hints, approach, relevants, priority, start_date, end_date, created_at, updated_at)
+    VALUES (@main_task_id, @name, @content, @status, @sort_order, @purpose, @resources, @duration, @effect, @hints, @approach, @relevants, @priority, @start_date, @end_date, @created_at, @updated_at)
   `).run({
     main_task_id: data.main_task_id, name: data.name, content: data.content || '',
-    status: data.status || '进行中', sort_order: data.sort_order || 0,
+    status, sort_order: data.sort_order || 0,
     purpose: data.purpose ?? null, resources: data.resources ?? null,
     duration: data.duration ?? null, effect: data.effect ?? null,
     hints: data.hints ?? null, approach: data.approach ?? null,
     relevants: data.relevants ?? null, priority: data.priority ?? null,
+    start_date: data.start_date || null, end_date: data.end_date || null,
     created_at: timestamp, updated_at: timestamp,
   });
+  // 初始状态历史（none → 初始状态）
+  recordInitialStatus(result.lastInsertRowid as number, 'sub', status, timestamp);
   return db.prepare('SELECT * FROM sub_tasks WHERE id = ?').get(result.lastInsertRowid);
 }
 

@@ -5,6 +5,7 @@ import DateNavigator from '../topnav/DateNavigator';
 import WeekdaySelector from '../topnav/WeekdaySelector';
 import KanbanBoard from '../kanban/KanbanBoard';
 import ProjectView from '../project/ProjectView';
+import TimelineView from '../timeline/TimelineView';
 import BottomBar from '../bottom/BottomBar';
 import TaskFormDialog from '../dialogs/TaskFormDialog';
 import ThemeBackground from '../common/ThemeBackground';
@@ -15,8 +16,8 @@ import type { AppMode } from '../../context/ModeContext';
 import type { MainTask, SubTask, ProgressReport } from '../../App';
 
 interface MainViewProps {
-  viewMode: 'date' | 'project';
-  onChangeView?: (v: 'date' | 'project') => void;
+  viewMode: 'date' | 'project' | 'timeline';
+  onChangeView?: (v: 'date' | 'project' | 'timeline') => void;
   mode: AppMode;
   searchKeyword: string;
   onSearchChange: (v: string) => void;
@@ -35,6 +36,8 @@ interface MainViewProps {
   currentSubIndex: number;
   onSelectTask: (id: number) => void;
   onSelectTaskOnly: (id: number) => void;
+  onSelectTimelineRow?: (mainId: number, subId: number | null) => void;
+  onTimelineDataChanged: () => void;
   onNextSubTask: () => void;
   onCompleteSubTask: () => void;
   onCancelSubTask: () => void;
@@ -102,6 +105,15 @@ const MainView: React.FC<MainViewProps> = (props) => {
       <ThemeBackground targetComponent="MainContent" />
       {props.viewMode === 'project' ? (
         <ProjectView onSelectTask={props.onSelectTask} onEditTask={props.onEditTask} navigateProject={navigateProject} refreshKey={props.projectRefreshKey} />
+      ) : props.viewMode === 'timeline' ? (
+        <TimelineView
+          selectedTask={props.selectedTask}
+          selectedSubTask={props.selectedSubTask}
+          onSelectRow={(mainId, subId) => props.onSelectTimelineRow?.(mainId, subId)}
+          onEditTask={props.onEditTask}
+          onDataChanged={props.onTimelineDataChanged}
+          refreshKey={props.projectRefreshKey}
+        />
       ) : (
         <KanbanBoard
           mode={props.mode}

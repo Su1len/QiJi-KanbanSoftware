@@ -1,10 +1,10 @@
 import React from 'react';
-import { SettingOutlined, CalendarOutlined, FolderOutlined } from '@ant-design/icons';
+import { SettingOutlined, CalendarOutlined, FolderOutlined, FieldTimeOutlined } from '@ant-design/icons';
 import { useLang } from '../../context/LanguageContext';
 
 const Sidebar: React.FC<{
-  viewMode: 'date' | 'project';
-  onChangeView: (v: 'date' | 'project') => void;
+  viewMode: 'date' | 'project' | 'timeline';
+  onChangeView: (v: 'date' | 'project' | 'timeline') => void;
   onOpenSettings: () => void;
 }> = ({ viewMode, onChangeView, onOpenSettings }) => {
   const { t } = useLang();
@@ -24,6 +24,12 @@ const Sidebar: React.FC<{
       style={{ fontSize: 18, cursor: 'pointer',
         color: viewMode === 'project' ? 'var(--color-accent)' : 'var(--color-text-secondary)' }}
       title={t('view.project')}
+    />
+    <FieldTimeOutlined
+      onClick={() => onChangeView('timeline')}
+      style={{ fontSize: 18, cursor: 'pointer',
+        color: viewMode === 'timeline' ? 'var(--color-accent)' : 'var(--color-text-secondary)' }}
+      title={t('view.timeline')}
     />
     <SettingOutlined
       style={{ fontSize: 20, color: 'var(--color-text-secondary)', cursor: 'pointer' }}

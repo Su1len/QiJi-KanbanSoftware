@@ -123,6 +123,11 @@ export const api = {
   countTasksInProject: (name: string) => request<{ count: number }>('GET', `/api/projects/${encodeURIComponent(name)}/count`).then(r => r.count),
   moveTask: (id: number, status: string) => request<any>('PUT', `/api/main-tasks/${id}/move`, { status }),
 
+  // Timeline
+  getTimeline: () => request<any[]>('GET', '/api/timeline'),
+  updateTimelineTask: (data: { taskType: 'main' | 'sub'; taskId: number; startDate: string; endDate: string }) =>
+    request<any>('PUT', '/api/timeline/update', data),
+
   // Data Management
   deleteAllTasks: () => request<any>('POST', '/api/delete-all'),
 

@@ -64,8 +64,8 @@ const AppInner: React.FC = () => {
   const [loading, setLoading] = useState(false);
 
   // Dialog state
-  const [viewMode, setViewMode] = useState<'date' | 'project'>('date');
-  const handleChangeView = (v: 'date' | 'project') => {
+  const [viewMode, setViewMode] = useState<'date' | 'project' | 'timeline'>('date');
+  const handleChangeView = (v: 'date' | 'project' | 'timeline') => {
     setViewMode(v);
     setSelectedTask(null);
     setSelectedSubTask(null);
@@ -76,6 +76,25 @@ const AppInner: React.FC = () => {
     try {
       const task = await api.getMainTaskWithSubs(taskId);
       if (task) { setSelectedTask(task); setSelectedSubTask(null); setCurrentSubIndex(-1); }
+    } catch (e) { console.error(e); }
+  }, []);
+  // 时间轴视图选择行：子任务行同时选中对应子任务，主任务行只选中主任务
+  const handleSelectTimelineRow = useCallback(async (mainId: number, subId: number | null) => {
+    try {
+      const task: MainTask = await api.getMainTaskWithSubs(mainId);
+      if (!task) return;
+      setSelectedTask(task);
+      if (subId != null) {
+        const subs = task.sub_tasks || [];
+        const idx = subs.findIndex((s: SubTask) => s.id === subId);
+        if (idx >= 0) {
+          setSelectedSubTask(subs[idx]);
+          setCurrentSubIndex(idx);
+          return;
+        }
+      }
+      setSelectedSubTask(null);
+      setCurrentSubIndex(-1);
     } catch (e) { console.error(e); }
   }, []);
   const [showTaskForm, setShowTaskForm] = useState(false);
@@ -295,6 +314,8 @@ const AppInner: React.FC = () => {
             onWeekdayClick={handleWeekdayClick} allTasks={allTasks} loading={loading}
             selectedTask={selectedTask} selectedSubTask={selectedSubTask} currentSubIndex={currentSubIndex}
             onSelectTask={loadTaskDetail} onSelectTaskOnly={handleSelectTaskOnly}
+            onSelectTimelineRow={handleSelectTimelineRow}
+            onTimelineDataChanged={() => { loadTasks(); setProjectRefreshKey(k => k + 1); }}
             onNextSubTask={nextSubTask}
             onSimpleComplete={handleSimpleComplete} onSimpleCancel={handleSimpleCancel}
             onCompleteSubTask={handleCompleteSubTask} onCancelSubTask={handleCancelSubTask}

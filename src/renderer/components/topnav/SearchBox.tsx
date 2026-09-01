@@ -4,7 +4,7 @@ import { SearchOutlined } from '@ant-design/icons';
 import { useLang } from '../../context/LanguageContext';
 
 const SearchBox: React.FC<{
-  viewMode: 'date' | 'project';
+  viewMode: 'date' | 'project' | 'timeline';
   onNavigateToDate: (date: string, switchView?: boolean) => void;
   onNavigateToProject: (projectName: string) => void;
 }> = ({ viewMode, onNavigateToDate, onNavigateToProject }) => {

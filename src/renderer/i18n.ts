@@ -160,7 +160,15 @@ export const MSGS: Record<string, { zh: string; en: string }> = {
   // 视图
   'view.date': { zh: '日期视图', en: 'Date View' },
   'view.project': { zh: '项目视图', en: 'Project View' },
+  'view.timeline': { zh: '时间轴视图', en: 'Timeline View' },
   'view.settings': { zh: '设置', en: 'Settings' },
+  // 时间轴
+  'timeline.empty': { zh: '暂无任务数据。创建任务或为任务设置开始/结束日期后，这里会显示时间条。', en: 'No task data. Create tasks or set start/end dates to see bars here.' },
+  'timeline.today': { zh: '今天', en: 'Today' },
+  'timeline.hint': { zh: '拖动任务条整条平移（按天调整），单击选中，双击打开编辑表单', en: 'Drag bars to shift by days, click to select, double-click to edit' },
+  'timeline.task': { zh: '任务', en: 'Task' },
+  'form.startDate': { zh: '开始日期', en: 'Start date' },
+  'form.endDate': { zh: '结束日期', en: 'End date' },
   'project.selectPh': { zh: '选择项目', en: 'Select project' },
   'project.exportRetro': { zh: '导出复盘', en: 'Export Review' },
   'project.empty': { zh: '选择一个项目以查看看板', en: 'Select a project to view the board' },

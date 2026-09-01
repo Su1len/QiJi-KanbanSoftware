@@ -63,6 +63,12 @@ function post(pathStr, body) { return request('POST', pathStr, body); }
 function put(pathStr, body) { return request('PUT', pathStr, body || {}); }
 function del(pathStr) { return request('DELETE', pathStr); }
 
+function isoDate(offsetDays) {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 // ─── 数据库隔离 ────────────────────────────────────────
 function backupDB() {
   if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
@@ -666,6 +672,208 @@ async function runTests() {
     const ok = status === 200 && Array.isArray(body) && body.some(h => h.from_status === '已完成' && h.to_status === '暂搁置');
     record('状态历史记录（子任务 updateSubTask）', ok,
       ok ? `历史条数=${body.length}` : `status=${status}, body=${JSON.stringify(body)}`);
+  }
+
+  // ── 用例 42-47：初始历史记录、日期视图改状态、鉴权、批量变更（V1.0.1） ──
+  {
+    const { body: created } = await post('/api/main-tasks', {
+      name: '初始历史-主任务',
+      content: '测试内容',
+      priority: 5,
+      status: '进行中',
+      task_date: TEST_DATE,
+      sub_tasks: [],
+    });
+    const { status, body } = await get(`/api/status-history?taskType=main&taskId=${created.id}`);
+    const ok = status === 200 && Array.isArray(body)
+      && body.some(h => h.from_status === 'none' && h.to_status === '进行中')
+      && body.length === 1;
+    record('新建主任务初始历史记录（none→进行中）', ok,
+      ok ? `历史条数=${body.length}` : `status=${status}, body=${JSON.stringify(body)}`);
+  }
+  {
+    const { body: created } = await post('/api/sub-tasks', {
+      main_task_id: mainTaskId,
+      name: '初始历史-子任务',
+      sort_order: 20,
+    });
+    const { status, body } = await get(`/api/status-history?taskType=sub&taskId=${created.id}`);
+    const ok = status === 200 && Array.isArray(body)
+      && body.some(h => h.from_status === 'none' && h.to_status === '进行中')
+      && body.length === 1;
+    record('新建子任务初始历史记录（none→进行中）', ok,
+      ok ? `历史条数=${body.length}` : `status=${status}, body=${JSON.stringify(body)}`);
+  }
+  {
+    // 新建主任务直接带非默认状态（无子任务）：none→进行中 + 进行中→已完成 两条
+    const { body: created } = await post('/api/main-tasks', {
+      name: '初始历史-非默认状态',
+      content: '测试内容',
+      priority: 5,
+      status: '已完成',
+      task_date: TEST_DATE,
+      sub_tasks: [],
+    });
+    const { status, body } = await get(`/api/status-history?taskType=main&taskId=${created.id}`);
+    const ok = status === 200 && Array.isArray(body)
+      && body.some(h => h.from_status === 'none' && h.to_status === '进行中')
+      && body.some(h => h.from_status === '进行中' && h.to_status === '已完成');
+    record('新建主任务非默认状态历史（两条记录）', ok,
+      ok ? `历史条数=${body.length}` : `status=${status}, body=${JSON.stringify(body)}`);
+  }
+  {
+    // 日期视图修改任务状态：PUT /api/main-tasks/:id 带 status（走 moveTask 分支）
+    const { body: created } = await post('/api/main-tasks', {
+      name: '日期视图改状态-主任务',
+      content: '测试内容',
+      priority: 5,
+      status: '进行中',
+      task_date: TEST_DATE,
+      sub_tasks: [],
+    });
+    await put(`/api/main-tasks/${created.id}`, { status: '暂搁置' });
+    const { status, body } = await get(`/api/status-history?taskType=main&taskId=${created.id}`);
+    const ok = status === 200 && Array.isArray(body)
+      && body.some(h => h.from_status === 'none' && h.to_status === '进行中')
+      && body.some(h => h.from_status === '进行中' && h.to_status === '暂搁置');
+    record('日期视图改状态历史记录（moveTask 分支）', ok,
+      ok ? `历史条数=${body.length}` : `status=${status}, body=${JSON.stringify(body)}`);
+  }
+  {
+    // 鉴权：无令牌 + 有 Origin → 403；带令牌 → 200；无 Origin → 200（现有用例已覆盖）
+    const htmlResp = await request('GET', '/', undefined);
+    const tokenMatch = typeof htmlResp.body === 'string' && htmlResp.body.match(/<meta name="kanban-token" content="([^"]+)"/);
+    const token = tokenMatch ? tokenMatch[1] : '';
+    const evil = await request('GET', `/api/status-history?taskType=main&taskId=${mainTaskId}`, undefined,
+      { 'Origin': 'http://127.0.0.1:3456' });
+    const good = await request('GET', `/api/status-history?taskType=main&taskId=${mainTaskId}`, undefined,
+      { 'Origin': 'http://127.0.0.1:3456', 'X-Kanban-Token': token });
+    const ok = token !== '' && evil.status === 403 && good.status === 200 && Array.isArray(good.body);
+    record('status-history 接口鉴权（无令牌 403 / 带令牌 200）', ok,
+      `token提取=${token !== ''}, evil=${evil.status}, good=${good.status}`);
+  }
+  {
+    // 批量变更（项目视图拖拽）：主任务带 3 个子任务，moveTask → 已完成，
+    // 每个受影响任务（主 + 3 子）都应有独立的 进行中→已完成 记录
+    const { body: created } = await post('/api/main-tasks', {
+      name: '批量变更-主任务',
+      content: '测试内容',
+      priority: 5,
+      status: '进行中',
+      task_date: TEST_DATE,
+      sub_tasks: [
+        { name: '批量子任务1' },
+        { name: '批量子任务2' },
+        { name: '批量子任务3' },
+      ],
+    });
+    const withSubs = await get(`/api/main-tasks/${created.id}/with-subs`);
+    const subs = withSubs.body.sub_tasks;
+    await put(`/api/main-tasks/${created.id}/move`, { status: '已完成' });
+    let allOk = true;
+    const details = [];
+    for (const s of subs) {
+      const { body: h } = await get(`/api/status-history?taskType=sub&taskId=${s.id}`);
+      const hasInit = h.some(x => x.from_status === 'none' && x.to_status === '进行中');
+      const hasTrans = h.some(x => x.from_status === '进行中' && x.to_status === '已完成');
+      details.push(`sub${s.id}: ${hasInit}/${hasTrans}`);
+      if (!hasInit || !hasTrans) allOk = false;
+    }
+    const { body: mainHist } = await get(`/api/status-history?taskType=main&taskId=${created.id}`);
+    const mainOk = mainHist.some(x => x.from_status === '进行中' && x.to_status === '已完成');
+    const ok = allOk && mainOk;
+    record('批量变更历史（主任务+3子任务各自独立记录）', ok,
+      ok ? details.join(', ') + `; main=进行中→已完成:${mainOk}` : details.join(', ') + `; main=${JSON.stringify(mainHist)}`);
+  }
+
+  // ── 用例 48-51：时间轴视图（V1.0.1） ──
+  {
+    // 时间轴行结构：有子任务的主任务按子任务分行，无子任务的主任务单独一行
+    const { body: created } = await post('/api/main-tasks', {
+      name: '时间轴-带子任务',
+      content: '测试内容',
+      priority: 5,
+      status: '进行中',
+      task_date: TEST_DATE,
+      sub_tasks: [{ name: '轴子1' }, { name: '轴子2' }],
+    });
+    await post('/api/main-tasks', {
+      name: '时间轴-无子任务',
+      content: '测试内容',
+      priority: 5,
+      status: '进行中',
+      task_date: TEST_DATE,
+      sub_tasks: [],
+    });
+    const { status, body } = await get('/api/timeline');
+    const mainRows = (body || []).filter(r => r.mainId === created.id);
+    const soloRow = (body || []).find(r => r.rowType === 'main' && r.taskName === '时间轴-无子任务');
+    const ok = status === 200 && mainRows.length === 2 && mainRows.every(r => r.rowType === 'sub')
+      && !!soloRow && soloRow.startDate === TEST_DATE && soloRow.endDate === TEST_DATE;
+    record('时间轴行结构（子任务分行 + 无子任务单独行）', ok,
+      `rows=${body.length}, subRows=${mainRows.length}, solo=${!!soloRow}`);
+  }
+  {
+    // 拖拽整条平移：结束日期晚于今天 → 状态置为进行中（走统一入口 + 历史）
+    const { body: created } = await post('/api/main-tasks', {
+      name: '时间轴-拖拽规则',
+      content: '测试内容',
+      priority: 5,
+      status: '已取消',
+      task_date: TEST_DATE,
+      sub_tasks: [],
+    });
+    const s1 = isoDate(2), e1 = isoDate(6);
+    const r = await put('/api/timeline/update', { taskType: 'main', taskId: created.id, startDate: s1, endDate: e1 });
+    const { body: hist } = await get(`/api/status-history?taskType=main&taskId=${created.id}`);
+    const ok = r.status === 200 && r.body.success === true
+      && r.body.updated.start_date === s1 && r.body.updated.end_date === e1
+      && r.body.updated.status === '进行中'
+      && hist.some(h => h.from_status === '已取消' && h.to_status === '进行中');
+    record('时间轴拖拽-未来结束日期置为进行中（含历史）', ok,
+      ok ? `start=${s1}, end=${e1}, status=${r.body.updated.status}` : `status=${r.status}, body=${JSON.stringify(r.body)}`);
+  }
+  {
+    // 拖拽后结束日期早于或等于今天 → 状态不变
+    const { body: created } = await post('/api/main-tasks', {
+      name: '时间轴-过去日期',
+      content: '测试内容',
+      priority: 5,
+      status: '已完成',
+      task_date: TEST_DATE,
+      sub_tasks: [],
+    });
+    const s1 = isoDate(-4), e1 = isoDate(-1);
+    const r = await put('/api/timeline/update', { taskType: 'main', taskId: created.id, startDate: s1, endDate: e1 });
+    const { body: hist } = await get(`/api/status-history?taskType=main&taskId=${created.id}`);
+    const noTrans = !hist.some(h => h.from_status === '已完成' && h.to_status === '进行中');
+    const ok = r.status === 200 && r.body.updated.status === '已完成' && noTrans
+      && r.body.updated.start_date === s1;
+    record('时间轴拖拽-过去结束日期状态不变', ok,
+      ok ? `status=${r.body.updated.status}` : `body=${JSON.stringify(r.body)}`);
+  }
+  {
+    // 表单修改开始/结束时间：PUT 主任务与子任务字段持久化
+    const { body: created } = await post('/api/main-tasks', {
+      name: '时间轴-表单日期',
+      content: '测试内容',
+      priority: 5,
+      status: '进行中',
+      task_date: TEST_DATE,
+      sub_tasks: [{ name: '表单子任务' }],
+    });
+    const ms = isoDate(1), me = isoDate(3);
+    const rMain = await put(`/api/main-tasks/${created.id}`, { start_date: ms, end_date: me });
+    const withSubs = await get(`/api/main-tasks/${created.id}/with-subs`);
+    const subId = withSubs.body.sub_tasks[0].id;
+    const ss = isoDate(2), se = isoDate(5);
+    await put(`/api/sub-tasks/${subId}`, { start_date: ss, end_date: se });
+    const after = await get(`/api/main-tasks/${created.id}/with-subs`);
+    const ok = rMain.status === 200
+      && after.body.start_date === ms && after.body.end_date === me
+      && after.body.sub_tasks[0].start_date === ss && after.body.sub_tasks[0].end_date === se;
+    record('表单修改开始/结束日期持久化（主+子）', ok,
+      ok ? `main=${ms}~${me}, sub=${ss}~${se}` : `body=${JSON.stringify(after.body)}`);
   }
 }
 

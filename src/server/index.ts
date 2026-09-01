@@ -43,6 +43,8 @@ import {
   checkpointDatabase,
   getCompletionStats,
   getStatusHistory,
+  getTimelineRows,
+  updateTaskTime,
 } from './database';
 import { te, getReqLang } from './messages';
 
@@ -276,10 +278,37 @@ app.put('/api/main-tasks/:id/move', (req, res) => {
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
+// ==================== Timeline ====================
+
+app.get('/api/timeline', (_req, res) => {
+  try {
+    res.json(getTimelineRows());
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/timeline/update', (req, res) => {
+  try {
+    const taskType = req.body.taskType === 'sub' ? 'sub' : 'main';
+    const taskId = Number(req.body.taskId);
+    const startDate = String(req.body.startDate || '');
+    const endDate = String(req.body.endDate || '');
+    if (!taskId) return res.status(400).json({ error: te(getReqLang(req), 'param.invalid') });
+    const updated = updateTaskTime(taskType, taskId, startDate, endDate);
+    res.json({ success: true, updated });
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
 // ==================== Status history ====================
 
 app.get('/api/status-history', (req, res) => {
   try {
+    // 令牌鉴权（对前端透明：api-client 所有请求自动携带 X-Kanban-Token）。
+    // 豁免规则与全局中间件一致：无 Origin 的本地客户端（如测试脚本）与 3000 端口开发模式放行。
+    const token = req.headers['x-kanban-token'] as string | undefined;
+    const origin = req.headers['origin'] as string | undefined;
+    if (token !== sessionToken && origin && !DEV_ORIGIN.test(origin)) {
+      return res.status(403).json({ error: te(getReqLang(req), 'token.fail') });
+    }
     const taskType = req.query.taskType === 'sub' ? 'sub' : 'main';
     const taskId = Number(req.query.taskId);
     if (!taskId) return res.status(400).json({ error: te(getReqLang(req), 'param.invalid') });
