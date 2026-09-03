@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Modal, Form, Input, Select, Button, Row, Col, InputNumber, Tooltip, AutoComplete, DatePicker, message } from 'antd';
-import { PlusOutlined, DeleteOutlined, QuestionCircleOutlined, DownOutlined, RightOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, QuestionCircleOutlined, DownOutlined, RightOutlined, HighlightOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { MainTask } from '../../App';
 import type { AppMode } from '../../context/ModeContext';
@@ -40,6 +40,51 @@ interface SubTaskFormItem {
 
 const STATUS_VALUES = ['进行中', '暂搁置', '已取消', '已完成'];
 
+export interface HighlightMark { text: string; reason: string; suggestion: string; }
+
+// 标红展示组件：字段存在已接受的 AI 标注时，用红色高亮原文替换输入控件
+const HLField: React.FC<{
+  fieldKey: string;
+  form: any;
+  marks: Record<string, HighlightMark>;
+  onClear: (key: string) => void;
+  children: React.ReactNode;
+  valueOverride?: string | null;
+}> = ({ fieldKey, form, marks, onClear, children, valueOverride }) => {
+  const { t } = useLang();
+  const watched = Form.useWatch(fieldKey, form);
+  const value = valueOverride !== undefined && valueOverride !== null
+    ? String(valueOverride)
+    : (watched === undefined || watched === null ? '' : String(watched));
+  const mark = marks[fieldKey];
+  if (!mark) return <>{children}</>;
+  const idx = value.indexOf(mark.text);
+  return (
+    <div>
+      <div style={{
+        border: '1px solid rgba(255,77,79,0.45)', background: 'rgba(255,77,79,0.06)',
+        borderRadius: 6, padding: '4px 8px', fontSize: 13, lineHeight: 1.8, minHeight: 30,
+      }}>
+        {idx >= 0 ? (
+          <>
+            {value.slice(0, idx)}
+            <span style={{ color: '#ff4d4f', fontWeight: 600, textDecoration: 'underline' }}>{mark.text}</span>
+            {value.slice(idx + mark.text.length)}
+          </>
+        ) : (
+          <span style={{ color: '#ff4d4f', fontWeight: 600 }}>{mark.text}</span>
+        )}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2, lineHeight: 1.6 }}>
+        {t('ai.hl.reason')}: {mark.reason}　{t('ai.hl.suggestion')}: {mark.suggestion}
+      </div>
+      <Button type="link" size="small" style={{ padding: 0, height: 20 }} onClick={() => onClear(fieldKey)}>
+        {t('ai.hl.clearMark')}
+      </Button>
+    </div>
+  );
+};
+
 const TaskFormDialog: React.FC<{
   mode: AppMode;
   task: MainTask | null;
@@ -53,6 +98,10 @@ const TaskFormDialog: React.FC<{
   const { t, lang } = useLang();
   const [subTasks, setSubTasks] = useState<SubTaskFormItem[]>([]);
   const [projectOptions, setProjectOptions] = useState<{ value: string }[]>([]);
+  // AI 划重点状态
+  const [hlLoading, setHlLoading] = useState(false);
+  const [hlResult, setHlResult] = useState<{ highlights: any[]; follow_up_questions: string[] } | null>(null);
+  const [hlMarks, setHlMarks] = useState<Record<string, HighlightMark>>({});
 
   const statusOptions = STATUS_VALUES.map(v => ({ value: v, label: statusText(v, lang) }));
 
@@ -66,6 +115,7 @@ const TaskFormDialog: React.FC<{
         relevants: task.relevants, priority: task.priority,
         start_date: (task as any).start_date ? dayjs((task as any).start_date) : null,
         end_date: (task as any).end_date ? dayjs((task as any).end_date) : null,
+        repeat_frequency: (task as any).repeat_frequency || 'none',
       });
       if (task.sub_tasks) {
         const subs: SubTaskFormItem[] = task.sub_tasks.map(s => {
@@ -97,6 +147,7 @@ const TaskFormDialog: React.FC<{
         duration: initialData.duration || '', effect: initialData.effect || '',
         hints: initialData.hints || '', approach: initialData.approach || '',
         relevants: initialData.relevants || '', priority: initialData.priority || 0,
+        repeat_frequency: initialData.repeat_frequency || 'none',
       });
       if (initialData.sub_tasks && initialData.sub_tasks.length > 0) {
         setSubTasks(initialData.sub_tasks.map((s: any) => ({ name: s.name || '' })));
@@ -136,6 +187,66 @@ const TaskFormDialog: React.FC<{
     setSubTasks(updated);
   };
   const toggleExpand = (i: number) => updateSubTask(i, { expanded: !subTasks[i].expanded });
+
+  // ---- AI 划重点 ----
+  const fieldLabel = (key: string): string => {
+    if (key.startsWith('sub:')) {
+      const m = key.match(/^sub:(\d+):(.+)$/);
+      if (m) return `${t('form.subtasks')} ${Number(m[1]) + 1} · ${fieldLabel(m[2])}`;
+    }
+    const map: Record<string, string> = {
+      name: t('form.name'), content: t('form.content'), project_name: t('form.project'),
+      purpose: t('field.purpose'), resources: t('field.resources'), duration: t('field.duration'),
+      effect: t('field.effect'), hints: t('field.hints'), approach: t('field.approach'),
+      relevants: t('field.relevants'),
+    };
+    return map[key] || key;
+  };
+  const collectFields = (): Record<string, string> => {
+    const v = form.getFieldsValue();
+    const payload: Record<string, string> = {};
+    const push = (k: string, val: any) => {
+      if (val !== undefined && val !== null && String(val).trim()) payload[k] = String(val).trim();
+    };
+    push('name', v.name); push('content', v.content); push('project_name', v.project_name);
+    push('purpose', v.purpose); push('resources', v.resources); push('duration', v.duration);
+    push('effect', v.effect); push('hints', v.hints); push('approach', v.approach); push('relevants', v.relevants);
+    subTasks.forEach((st, i) => {
+      push(`sub:${i}:name`, st.name);
+      push(`sub:${i}:purpose`, st.purpose); push(`sub:${i}:resources`, st.resources);
+      push(`sub:${i}:duration`, st.duration); push(`sub:${i}:effect`, st.effect);
+      push(`sub:${i}:hints`, st.hints); push(`sub:${i}:approach`, st.approach); push(`sub:${i}:relevants`, st.relevants);
+    });
+    return payload;
+  };
+  const handleAiHighlight = async () => {
+    const payload = collectFields();
+    if (Object.keys(payload).length === 0) { message.info(t('ai.hl.noFields')); return; }
+    setHlLoading(true);
+    try {
+      const r = await api.aiHighlight(payload);
+      setHlResult(r);
+    } catch (e: any) {
+      message.error(e.message || (lang === 'en' ? 'AI highlighting failed' : 'AI 划重点失败'));
+    }
+    setHlLoading(false);
+  };
+  const clearMark = (key: string) => {
+    setHlMarks(prev => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+  const acceptHighlights = () => {
+    if (!hlResult) return;
+    const marks: Record<string, HighlightMark> = {};
+    (hlResult.highlights || []).forEach(h => {
+      marks[h.field] = { text: h.original_text, reason: h.reason, suggestion: h.suggestion };
+    });
+    setHlMarks(marks);
+    setHlResult(null);
+  };
   const wouldCreateCycle = (fromIdx: number, toIdx: number): boolean => {
     let cursor: number | null = toIdx;
     const visited = new Set<number>();
@@ -159,24 +270,33 @@ const TaskFormDialog: React.FC<{
       cancelText={t('common.cancel')}
     >
       <Form form={form} layout="vertical" size="small">
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 4 }}>
+          <Button size="small" icon={<HighlightOutlined />} loading={hlLoading} onClick={handleAiHighlight}>
+            {t('form.aiHighlight')}
+          </Button>
+        </div>
         <Row gutter={16}>
           <Col span={8}>
             <Form.Item name="name" label={t('form.name')} rules={[{ required: true, message: t('form.name.required') }]}>
-              <Input placeholder={t('form.name.ph')} />
+              <HLField fieldKey="name" form={form} marks={hlMarks} onClear={clearMark}>
+                <Input placeholder={t('form.name.ph')} />
+              </HLField>
             </Form.Item>
           </Col>
           <Col span={6}>
             <Form.Item name="project_name" label={t('form.project')}>
-              <AutoComplete
-                options={projectOptions}
-                onFocus={async () => {
-                  try {
-                    const names = await fetch('/api/projects').then(r => r.json());
-                    setProjectOptions(names.map((n: string) => ({ value: n })));
-                  } catch {}
-                }}
-                placeholder={t('form.project.ph')}
-              />
+              <HLField fieldKey="project_name" form={form} marks={hlMarks} onClear={clearMark}>
+                <AutoComplete
+                  options={projectOptions}
+                  onFocus={async () => {
+                    try {
+                      const names = await fetch('/api/projects').then(r => r.json());
+                      setProjectOptions(names.map((n: string) => ({ value: n })));
+                    } catch {}
+                  }}
+                  placeholder={t('form.project.ph')}
+                />
+              </HLField>
             </Form.Item>
           </Col>
           <Col span={5}>
@@ -202,10 +322,21 @@ const TaskFormDialog: React.FC<{
               <DatePicker style={{ width: '100%' }} placeholder={t('form.endDate')} />
             </Form.Item>
           </Col>
+          <Col span={8}>
+            <Form.Item name="repeat_frequency" label={t('form.repeat')} initialValue="none">
+              <Select options={[
+                { value: 'none', label: t('repeat.none') },
+                { value: 'weekly', label: t('repeat.weekly') },
+                { value: 'monthly', label: t('repeat.monthly') },
+              ]} />
+            </Form.Item>
+          </Col>
         </Row>
 
         <Form.Item name="content" label={t('form.content')}>
-          <TextArea rows={2} placeholder={t('form.content.ph')} />
+          <HLField fieldKey="content" form={form} marks={hlMarks} onClear={clearMark}>
+            <TextArea rows={2} placeholder={t('form.content.ph')} />
+          </HLField>
         </Form.Item>
 
         {mode === 'full' && (
@@ -219,10 +350,12 @@ const TaskFormDialog: React.FC<{
                     </Tooltip>
                   </span>
                 }>
-                  {f.key === 'duration'
-                    ? <InputNumber style={{ width: '100%' }} placeholder={lang === 'en' ? 'Days' : '整数天数'} />
-                    : <Input placeholder={t(f.labelKey)} />
-                  }
+                  <HLField fieldKey={f.key} form={form} marks={hlMarks} onClear={clearMark}>
+                    {f.key === 'duration'
+                      ? <InputNumber style={{ width: '100%' }} placeholder={lang === 'en' ? 'Days' : '整数天数'} />
+                      : <Input placeholder={t(f.labelKey)} />
+                    }
+                  </HLField>
                 </Form.Item>
               </Col>
             ))}
@@ -252,9 +385,11 @@ const TaskFormDialog: React.FC<{
                       onClick={() => toggleExpand(i)} style={{ padding: 0, width: 20, height: 20 }} />
                   </Col>
                   <Col flex="auto">
-                    <Input size="small" value={st.name}
-                      onChange={e => updateSubTask(i, { name: e.target.value })}
-                      placeholder={t('form.subName.ph')} />
+                    <HLField fieldKey={`sub:${i}:name`} form={form} marks={hlMarks} onClear={clearMark} valueOverride={st.name}>
+                      <Input size="small" value={st.name}
+                        onChange={e => updateSubTask(i, { name: e.target.value })}
+                        placeholder={t('form.subName.ph')} />
+                    </HLField>
                   </Col>
                   <Col style={{ width: 130 }}>
                     <Select
@@ -297,11 +432,13 @@ const TaskFormDialog: React.FC<{
                                 <QuestionCircleOutlined style={{ marginLeft: 4, fontSize: 11 }} />
                               </Tooltip>
                             </div>
-                            <Input size="small"
-                              value={(st as any)[f.key] || ''}
-                              onChange={e => updateSubTask(i, { [f.key]: e.target.value })}
-                              placeholder={t(f.labelKey)}
-                            />
+                            <HLField fieldKey={`sub:${i}:${f.key}`} form={form} marks={hlMarks} onClear={clearMark} valueOverride={(st as any)[f.key] || ''}>
+                              <Input size="small"
+                                value={(st as any)[f.key] || ''}
+                                onChange={e => updateSubTask(i, { [f.key]: e.target.value })}
+                                placeholder={t(f.labelKey)}
+                              />
+                            </HLField>
                           </div>
                         </Col>
                       ))}
@@ -362,6 +499,48 @@ const TaskFormDialog: React.FC<{
           </>
         )}
       </Form>
+
+      {/* AI 划重点结果（只读参考层） */}
+      {hlResult && (
+        <Modal
+          open
+          title={t('ai.hl.title')}
+          onCancel={() => setHlResult(null)}
+          width={640}
+          okText={t('ai.hl.accept')}
+          cancelText={t('ai.hl.cancel')}
+          onOk={acceptHighlights}
+          zIndex={2000}
+        >
+          <div style={{ maxHeight: '50vh', overflow: 'auto' }}>
+            {(hlResult.highlights || []).length === 0 && (
+              <div style={{ color: 'var(--color-text-muted)', marginBottom: 12 }}>{t('ai.hl.noHighlights')}</div>
+            )}
+            {(hlResult.highlights || []).map((h, i) => (
+              <div key={i} style={{
+                border: '1px solid var(--color-border)', borderRadius: 6, padding: '8px 12px', marginBottom: 8,
+              }}>
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{fieldLabel(h.field)}</div>
+                <div style={{ fontSize: 13, color: '#ff4d4f', background: 'rgba(255,77,79,0.06)', borderRadius: 4, padding: '2px 6px', marginBottom: 4 }}>
+                  {h.original_text}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.7 }}>
+                  {t('ai.hl.reason')}: {h.reason}<br />
+                  {t('ai.hl.suggestion')}: {h.suggestion}
+                </div>
+              </div>
+            ))}
+            {(hlResult.follow_up_questions || []).length > 0 && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 4 }}>{t('ai.hl.followUp')}</div>
+                {(hlResult.follow_up_questions || []).map((q, i) => (
+                  <div key={i} style={{ fontSize: 12, color: 'var(--color-text-primary)', marginBottom: 2 }}>· {q}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
     </Modal>
   );
 };

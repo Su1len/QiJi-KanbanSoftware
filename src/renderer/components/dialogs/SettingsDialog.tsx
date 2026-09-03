@@ -5,14 +5,16 @@ import { useTheme } from '../../context/ThemeContext';
 import { useMode } from '../../context/ModeContext';
 import { useLang } from '../../context/LanguageContext';
 import type { Lang } from '../../i18n';
+import type { MainTask } from '../../App';
 import AboutTab from '../settings/AboutTab';
 import RetroHistoryTab from '../settings/RetroHistoryTab';
 import HelpTab from '../settings/HelpTab';
+import RepeatTab from '../settings/RepeatTab';
 import dayjs from 'dayjs';
 
 const { RangePicker } = DatePicker;
 
-const SettingsDialog: React.FC<{ onClose: () => void; initialTab?: string }> = ({ onClose, initialTab }) => {
+const SettingsDialog: React.FC<{ onClose: () => void; initialTab?: string; onOpenTask?: (task: MainTask) => void }> = ({ onClose, initialTab, onOpenTask }) => {
   const { themeName, setTheme, availableThemes, theme } = useTheme();
   const { mode, setMode } = useMode();
   const { lang, setLang, t } = useLang();
@@ -261,9 +263,14 @@ const SettingsDialog: React.FC<{ onClose: () => void; initialTab?: string }> = (
       ),
     },
     {
-      key: 'retrohistory',
+      key: 'retro',
       label: t('set.tab.retro'),
       children: <RetroHistoryTab />,
+    },
+    {
+      key: 'repeat',
+      label: t('set.tab.repeat'),
+      children: <RepeatTab onOpenTask={onOpenTask || (() => {})} />,
     },
     {
       key: 'help',

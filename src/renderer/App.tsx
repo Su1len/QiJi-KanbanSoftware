@@ -330,6 +330,7 @@ const AppInner: React.FC = () => {
             showSettings={showSettings} settingsTab={settingsTab}
             onSettingsClose={() => setShowSettings(false)}
             onOpenSettingsAtTab={(tab: string) => { setSettingsTab(tab); setShowSettings(true); }}
+            onOpenSettingsTask={(task: MainTask) => { setShowSettings(false); setEditingTask(task); setShowTaskForm(true); }}
             showAI={showAI} onAIClose={() => setShowAI(false)} onAIResult={handleAIResult}
             selectedDateForAI={selectedDate}
             showRetrospect={showRetrospect} onRetrospectClose={() => setShowRetrospect(false)}

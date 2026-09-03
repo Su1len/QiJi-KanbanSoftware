@@ -57,6 +57,7 @@ interface MainViewProps {
   settingsTab: string;
   onSettingsClose: () => void;
   onOpenSettingsAtTab: (tab: string) => void;
+  onOpenSettingsTask: (task: MainTask) => void;
   showAI: boolean;
   onAIClose: () => void;
   onAIResult: (data: any) => void;
@@ -158,7 +159,7 @@ const MainView: React.FC<MainViewProps> = (props) => {
         onCancel={props.onTaskFormCancel}
       />
     )}
-    {props.showSettings && <SettingsDialog onClose={props.onSettingsClose} initialTab={props.settingsTab} />}
+    {props.showSettings && <SettingsDialog onClose={props.onSettingsClose} initialTab={props.settingsTab} onOpenTask={props.onOpenSettingsTask} />}
     {props.showAI && (
       <AIDialog
         onClose={props.onAIClose}

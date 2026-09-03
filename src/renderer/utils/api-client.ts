@@ -128,12 +128,21 @@ export const api = {
   updateTimelineTask: (data: { taskType: 'main' | 'sub'; taskId: number; startDate: string; endDate: string }) =>
     request<any>('PUT', '/api/timeline/update', data),
 
+  // Repeat tasks
+  getRepeatTasks: () => request<any[]>('GET', '/api/repeats'),
+  getCurrentRepeatInstance: (id: number) => request<any>('GET', `/api/repeats/${id}/current`),
+  updateRepeatFrequency: (id: number, frequency: 'none' | 'weekly' | 'monthly') =>
+    request<any>('PUT', `/api/repeats/${id}`, { frequency }),
+  stopRepeat: (id: number) => request<any>('PUT', `/api/repeats/${id}/stop`),
+
   // Data Management
   deleteAllTasks: () => request<any>('POST', '/api/delete-all'),
 
   // AI
   aiParse: (input: string, history?: any[]) =>
     request<{ tasks: any[] }>('POST', '/api/ai/parse', { input, history }),
+  aiHighlight: (fields: Record<string, string>) =>
+    request<{ highlights: any[]; follow_up_questions: string[] }>('POST', '/api/ai/highlight', { fields }),
   testApiKey: (apiKey: string) =>
     request<any>('POST', '/api/ai/test-key', { apiKey }),
 

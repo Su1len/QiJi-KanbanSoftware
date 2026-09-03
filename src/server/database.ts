@@ -131,6 +131,12 @@ export function initDatabase(): void {
   try { db.exec('ALTER TABLE main_tasks ADD COLUMN end_date TEXT'); } catch(e) {}
   try { db.exec('ALTER TABLE sub_tasks ADD COLUMN start_date TEXT'); } catch(e) {}
   try { db.exec('ALTER TABLE sub_tasks ADD COLUMN end_date TEXT'); } catch(e) {}
+  // Migration: repeat task fields (V1.0.1, backward compatible)
+  // repeat_base_date = 任务第一次实际开始日期（不是创建日期）
+  // repeat_frequency = none | weekly | monthly，默认 none
+  try { db.exec("ALTER TABLE main_tasks ADD COLUMN repeat_frequency TEXT DEFAULT 'none'"); } catch(e) {}
+  try { db.exec('ALTER TABLE main_tasks ADD COLUMN repeat_base_date TEXT'); } catch(e) {}
+  db.exec('CREATE INDEX IF NOT EXISTS idx_main_tasks_repeat ON main_tasks(repeat_frequency);');
 }
 
 function now(): string {
@@ -295,26 +301,31 @@ export function updateTaskTime(taskType: TaskType, taskId: number, startDate: st
 // ---- Main Tasks ----
 
 export function createMainTask(data: any, lang: ServerLang = 'zh') {
-  const letter = getNextLetter(data.task_date);
+  // 落点日期：以 start_date 为实际落点（V1.0.1）；未设置 start_date 时以传入 task_date 为落点，并补默认 start_date。
+  const taskDate = data.start_date || data.task_date;
+  const startDate = data.start_date || data.task_date;
+  const letter = getNextLetter(taskDate);
   const timestamp = now();
   const doCreate = db.transaction(() => {
     const result = db.prepare(`
-      INSERT INTO main_tasks (letter, name, content, status, purpose, resources, duration, effect, hints, approach, relevants, priority, project_name, start_date, end_date, created_at, updated_at, task_date)
-      VALUES (@letter, @name, @content, @status, @purpose, @resources, @duration, @effect, @hints, @approach, @relevants, @priority, @project_name, @start_date, @end_date, @created_at, @updated_at, @task_date)
+      INSERT INTO main_tasks (letter, name, content, status, purpose, resources, duration, effect, hints, approach, relevants, priority, project_name, start_date, end_date, repeat_frequency, repeat_base_date, created_at, updated_at, task_date)
+      VALUES (@letter, @name, @content, @status, @purpose, @resources, @duration, @effect, @hints, @approach, @relevants, @priority, @project_name, @start_date, @end_date, @repeat_frequency, @repeat_base_date, @created_at, @updated_at, @task_date)
     `).run({
       letter, name: data.name, content: data.content || '', status: '进行中',
       purpose: data.purpose || '', resources: data.resources || '', duration: data.duration || '',
       effect: data.effect || '', hints: data.hints || '', approach: data.approach || '',
       relevants: data.relevants || '', priority: data.priority || 0,
       project_name: data.project_name || null,
-      start_date: data.start_date || null, end_date: data.end_date || null,
-      created_at: timestamp, updated_at: timestamp, task_date: data.task_date,
+      start_date: startDate, end_date: data.end_date || null,
+      repeat_frequency: data.repeat_frequency || 'none',
+      repeat_base_date: data.repeat_base_date || null,
+      created_at: timestamp, updated_at: timestamp, task_date: taskDate,
     });
     const mainTaskId = result.lastInsertRowid as number;
     // 初始状态历史（none → 进行中）
     recordInitialStatus(mainTaskId, 'main', '进行中', timestamp);
     // Create daily record for the task's date
-    db.prepare('INSERT OR IGNORE INTO daily_records (main_task_id, task_date, created_at) VALUES (?, ?, ?)').run(mainTaskId, data.task_date, timestamp);
+    db.prepare('INSERT OR IGNORE INTO daily_records (main_task_id, task_date, created_at) VALUES (?, ?, ?)').run(mainTaskId, taskDate, timestamp);
     const subTasks: any[] = data.sub_tasks || [];
     const indexToId: number[] = [];
     subTasks.forEach((st, i) => {
@@ -391,9 +402,18 @@ export function updateMainTask(id: number, data: any, lang: ServerLang = 'zh') {
         applyStatusChange(id, 'main', old.status, data.status);
       }
     }
+    // 重复频率变更走统一逻辑（V1.0.1）：none→weekly/monthly 设置基准日；
+    // weekly↔monthly 删除未来实例并重建；→none 停止重复并清理未来实例。
+    if (data.repeat_frequency !== undefined) {
+      const cur = (db.prepare('SELECT repeat_frequency FROM main_tasks WHERE id = ?').get(id) as any)?.repeat_frequency || 'none';
+      const next: 'none' | 'weekly' | 'monthly' = data.repeat_frequency === 'monthly' ? 'monthly' : data.repeat_frequency === 'weekly' ? 'weekly' : 'none';
+      if (cur !== next) {
+        applyRepeatFrequencyChange(id, next);
+      }
+    }
     const fields: string[] = [];
     const values: any = { id };
-    const skipKeys = new Set(['sub_tasks', 'status']);
+    const skipKeys = new Set(['sub_tasks', 'status', 'repeat_frequency', 'repeat_base_date']);
     for (const [key, value] of Object.entries(data)) {
       if (value !== undefined && !skipKeys.has(key)) {
         fields.push(`${key} = @${key}`);
@@ -677,6 +697,208 @@ function localToday(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// ---- 自动重复任务（V1.0.1）----
+
+function fmtDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function daysInMonth(y: number, m: number): number {
+  return new Date(y, m, 0).getDate();
+}
+
+function clampDay(y: number, m: number, day: number): number {
+  return Math.min(day, daysInMonth(y, m));
+}
+
+// 计算 >= afterDate 的下一个周期起始日
+function computeNextDueDate(base: string, freq: 'weekly' | 'monthly', afterDate: string): string {
+  const baseD = new Date(base + 'T00:00:00');
+  const afterD = new Date(afterDate + 'T00:00:00');
+  if (freq === 'weekly') {
+    const diff = Math.floor((afterD.getTime() - baseD.getTime()) / 86400000);
+    const days = diff <= 0 ? 0 : diff + (diff % 7 === 0 ? 0 : 7 - (diff % 7));
+    return fmtDate(new Date(baseD.getTime() + days * 86400000));
+  }
+  // monthly：逐月推进，日取 min(基准日, 当月天数)
+  const baseDay = baseD.getDate();
+  const y0 = afterD.getFullYear(), m0 = afterD.getMonth();
+  for (let i = 0; i < 24; i++) {
+    const y = y0 + Math.floor((m0 + i) / 12);
+    const m = (m0 + i) % 12;
+    const day = clampDay(y, m + 1, baseDay);
+    const d = new Date(y, m, day);
+    if (d.getTime() >= afterD.getTime()) return fmtDate(d);
+  }
+  return fmtDate(afterD);
+}
+
+// 计算"最近一次已经进入或正在进行的周期"的起始日（<= today 的最大周期起始日）
+function computeLatestDueDate(base: string, freq: 'weekly' | 'monthly', today: string): string {
+  const baseD = new Date(base + 'T00:00:00');
+  const todayD = new Date(today + 'T00:00:00');
+  if (baseD.getTime() > todayD.getTime()) return base;
+  if (freq === 'weekly') {
+    const diff = Math.floor((todayD.getTime() - baseD.getTime()) / 86400000);
+    return fmtDate(new Date(todayD.getTime() - (diff % 7) * 86400000));
+  }
+  const baseDay = baseD.getDate();
+  let last = base;
+  const y0 = baseD.getFullYear(), m0 = baseD.getMonth();
+  for (let i = 0; i < 1200; i++) {
+    const y = y0 + Math.floor((m0 + i) / 12);
+    const m = (m0 + i) % 12;
+    const day = clampDay(y, m + 1, baseDay);
+    const d = new Date(y, m, day);
+    if (d.getTime() > todayD.getTime()) break;
+    last = fmtDate(d);
+  }
+  return last;
+}
+
+function shiftDate(dateStr: string, deltaDays: number): string {
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + deltaDays);
+  return fmtDate(d);
+}
+
+// 删除未来重复实例（及其子任务、状态历史），原任务本身不动
+function deleteFutureRepeatInstances(orig: any): void {
+  const all = db.prepare('SELECT id, name, task_date FROM main_tasks').all() as any[];
+  const today = localToday();
+  for (const row of all) {
+    if (row.id === orig.id) continue;
+    if (!row.name.startsWith(orig.name + '-')) continue;
+    const suffix = row.name.slice(orig.name.length + 1);
+    if (!/^\d{8}$/.test(suffix)) continue;
+    if (row.task_date > today) {
+      const subIds = db.prepare('SELECT id FROM sub_tasks WHERE main_task_id = ?').all(row.id) as any[];
+      db.prepare('DELETE FROM status_change_history WHERE task_type = ? AND task_id = ?').run('main', row.id);
+      for (const s of subIds) {
+        db.prepare('DELETE FROM status_change_history WHERE task_type = ? AND task_id = ?').run('sub', s.id);
+      }
+      db.prepare('DELETE FROM progress_reports WHERE main_task_id = ?').run(row.id);
+      db.prepare('DELETE FROM daily_records WHERE main_task_id = ?').run(row.id);
+      db.prepare('DELETE FROM main_tasks WHERE id = ?').run(row.id);
+    }
+  }
+}
+
+// 若目标日期与原始任务同周期（<= 原任务落点日），原始任务即该期，不新建；
+// 否则若同名后缀任务不存在，则新建一期。
+function createRepeatInstanceIfNeeded(orig: any, target: string): void {
+  const ref = orig.start_date || orig.task_date;
+  if (target <= ref) return;
+  const suffix = target.replace(/-/g, '');
+  const exists = db.prepare('SELECT id FROM main_tasks WHERE name = ? AND task_date = ?').get(`${orig.name}-${suffix}`, target);
+  if (exists) return;
+  createRepeatInstance(orig, target);
+}
+
+function createRepeatInstance(orig: any, target: string): void {
+  const ref = orig.start_date || orig.task_date;
+  const deltaDays = Math.floor((new Date(target + 'T00:00:00').getTime() - new Date(ref + 'T00:00:00').getTime()) / 86400000);
+  const suffix = target.replace(/-/g, '');
+  const subs = db.prepare('SELECT * FROM sub_tasks WHERE main_task_id = ? ORDER BY sort_order ASC, created_at ASC').all(orig.id) as any[];
+  const idToIndex = new Map<number, number>();
+  subs.forEach((s, i) => idToIndex.set(s.id, i));
+  createMainTask({
+    name: `${orig.name}-${suffix}`,
+    content: orig.content || '',
+    status: '进行中',
+    purpose: orig.purpose || '', resources: orig.resources || '',
+    duration: orig.duration || '', effect: orig.effect || '',
+    hints: orig.hints || '', approach: orig.approach || '',
+    relevants: orig.relevants || '', priority: orig.priority || 0,
+    project_name: null,
+    repeat_frequency: 'none',
+    repeat_base_date: null,
+    task_date: target,
+    start_date: target,
+    end_date: orig.end_date ? shiftDate(orig.end_date, deltaDays) : null,
+    sub_tasks: subs.map(s => ({
+      name: s.name,
+      content: s.content || '',
+      status: '进行中',
+      purpose: s.purpose, resources: s.resources, duration: s.duration,
+      effect: s.effect, hints: s.hints, approach: s.approach, relevants: s.relevants,
+      start_date: s.start_date ? shiftDate(s.start_date, deltaDays) : null,
+      end_date: s.end_date ? shiftDate(s.end_date, deltaDays) : null,
+      nextIndex: s.next_sub_task_id ? (idToIndex.get(s.next_sub_task_id) ?? null) : null,
+    })),
+  }, 'zh');
+}
+
+// 检查并补建重复任务：启动时与跨日继承激活时调用。
+// 只补"最近一次应该发生"的周期，不补建错过的多期。
+export function checkAndCreateRepeats(todayOverride?: string): void {
+  const today = todayOverride || localToday();
+  const tasks = db.prepare("SELECT * FROM main_tasks WHERE repeat_frequency IN ('weekly', 'monthly')").all() as any[];
+  for (const t of tasks) {
+    if (!t.repeat_base_date) continue;
+    const latest = computeLatestDueDate(t.repeat_base_date, t.repeat_frequency, today);
+    createRepeatInstanceIfNeeded(t, latest);
+  }
+}
+
+// 表单修改重复频率：none→weekly/monthly、weekly↔monthly、→none（停止重复）
+export function applyRepeatFrequencyChange(taskId: number, frequency: 'none' | 'weekly' | 'monthly'): void {
+  const t = db.prepare('SELECT * FROM main_tasks WHERE id = ?').get(taskId) as any;
+  if (!t) return;
+  const old = t.repeat_frequency || 'none';
+  if (old === frequency) return;
+  if (frequency === 'none') {
+    // 停止重复：删除未来实例，清空字段
+    deleteFutureRepeatInstances(t);
+    db.prepare("UPDATE main_tasks SET repeat_frequency = 'none', repeat_base_date = NULL, updated_at = ? WHERE id = ?").run(now(), taskId);
+    return;
+  }
+  const base = t.repeat_base_date || t.start_date || t.task_date;
+  if (old !== 'none') {
+    // weekly ↔ monthly：删除未来实例，按新频率重建下一期
+    deleteFutureRepeatInstances(t);
+  }
+  db.prepare('UPDATE main_tasks SET repeat_frequency = ?, repeat_base_date = ?, updated_at = ? WHERE id = ?').run(frequency, base, now(), taskId);
+  if (old !== 'none') {
+    // 重建"下一个应该发生"的周期：必须严格晚于原任务落点（原任务即其所在周期）
+    const ref = t.start_date || t.task_date;
+    let next = computeNextDueDate(base, frequency, localToday());
+    if (next <= ref) next = computeNextDueDate(base, frequency, shiftDate(ref, 1));
+    createRepeatInstanceIfNeeded(t, next);
+  }
+}
+
+// 设置页列表：所有 repeat_frequency != none 的任务
+export function getRepeatTasks(): any[] {
+  return db.prepare(
+    "SELECT id, name, task_date, start_date, status, repeat_frequency, repeat_base_date FROM main_tasks WHERE repeat_frequency != 'none' ORDER BY repeat_base_date ASC, id ASC"
+  ).all();
+}
+
+// 设置页点击列表项：返回当前周期对应的那一期任务（含子任务）；无则返回原任务
+export function getCurrentRepeatInstance(taskId: number): any {
+  const t = db.prepare('SELECT * FROM main_tasks WHERE id = ?').get(taskId) as any;
+  if (!t) return null;
+  if ((t.repeat_frequency || 'none') === 'none') return getMainTaskWithSubs(taskId);
+  const base = t.repeat_base_date || t.start_date || t.task_date;
+  const latest = computeLatestDueDate(base, t.repeat_frequency, localToday());
+  const ref = t.start_date || t.task_date;
+  if (latest > ref) {
+    const suffix = latest.replace(/-/g, '');
+    const inst = db.prepare('SELECT id FROM main_tasks WHERE name = ? AND task_date = ?').get(`${t.name}-${suffix}`, latest) as any;
+    if (inst) {
+      const withSubs = getMainTaskWithSubs(inst.id);
+      if (withSubs) return withSubs;
+    }
+  }
+  return getMainTaskWithSubs(taskId);
+}
+
+// 设置页"停止重复"按钮
+export function stopRepeatTask(taskId: number): void {
+  applyRepeatFrequencyChange(taskId, 'none');
+}
+
 export function ensureDailyRecords(todayOverride?: string): void {
   const today = todayOverride || localToday();
   db.transaction(() => {
@@ -685,7 +907,8 @@ export function ensureDailyRecords(todayOverride?: string): void {
     ).all() as any[];
     const insert = db.prepare('INSERT OR IGNORE INTO daily_records (main_task_id, task_date, created_at) VALUES (?, ?, ?)');
     for (const task of tasks) {
-      const start = task.task_date;
+      // 跨日继承尊重 start_date（V1.0.1）：只继承 start_date <= 今日的任务
+      const start = task.start_date || task.task_date;
       if (start <= today) {
         // Ensure records from task_date to today
         let cursor = new Date(start);
@@ -699,6 +922,8 @@ export function ensureDailyRecords(todayOverride?: string): void {
       // Letters are computed per-query in getMainTasksByDate, no stored reindex needed
     }
   })();
+  // 跨日继承激活时同步检查补建重复任务（幂等）
+  checkAndCreateRepeats(today);
 }
 
 export function syncTaskToToday(mainTaskId: number): void {

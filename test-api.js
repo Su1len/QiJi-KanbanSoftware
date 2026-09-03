@@ -875,6 +875,164 @@ async function runTests() {
     record('表单修改开始/结束日期持久化（主+子）', ok,
       ok ? `main=${ms}~${me}, sub=${ss}~${se}` : `body=${JSON.stringify(after.body)}`);
   }
+
+  // ── 用例 52-60：自动重复任务 + 跨日继承 + AI 划重点（V1.0.1） ──
+  {
+    // 字段迁移：新任务默认 repeat_frequency='none'
+    const { body: created } = await post('/api/main-tasks', {
+      name: '重复字段迁移', content: 'x', priority: 5, status: '进行中', task_date: TEST_DATE, sub_tasks: [],
+    });
+    const ok = created.repeat_frequency === 'none' && (created.repeat_base_date === null || created.repeat_base_date === undefined);
+    record('重复任务字段迁移（默认 none / base 空）', ok,
+      `freq=${created.repeat_frequency}, base=${created.repeat_base_date}`);
+  }
+  {
+    // 启动/跨日补建最近一次：base=本地今天，模拟 8 天后打开 → 生成 base+7 那一期
+    const baseDay = isoDate(0);
+    const { body: created } = await post('/api/main-tasks', {
+      name: '周重复任务', content: 'c', purpose: 'p', priority: 5, status: '进行中',
+      task_date: isoDate(0), start_date: isoDate(0),
+      repeat_frequency: 'weekly', repeat_base_date: baseDay,
+      sub_tasks: [
+        { name: '周子1', start_date: isoDate(0), end_date: isoDate(2) },
+        { name: '周子2' },
+      ],
+    });
+    const simToday = isoDate(8);
+    const rEnsure = await post('/api/debug/ensure-daily', { today: simToday });
+    const expectDate = isoDate(7);
+    const { body: list } = await get(`/api/main-tasks?date=${expectDate}`);
+    const inst = (list || []).find(t => t.name === `周重复任务-${expectDate.replace(/-/g, '')}`);
+    let subOk = false, histOk = false;
+    if (inst) {
+      const withSubs = await get(`/api/main-tasks/${inst.id}/with-subs`);
+      const subs = withSubs.body.sub_tasks || [];
+      subOk = subs.length === 2 && subs.every(s => s.status === '进行中');
+      const h = await get(`/api/status-history?taskType=main&taskId=${inst.id}`);
+      histOk = h.body.some(x => x.from_status === 'none' && x.to_status === '进行中');
+    }
+    const ok = !!inst && subOk && histOk && inst.project_name === null;
+    record('补建最近一次重复任务（名称后缀/子任务/历史）', ok,
+      ok ? `inst=${expectDate}, subs=${subOk}, hist=${histOk}`
+        : `ensure=${rEnsure.status}(${JSON.stringify(rEnsure.body)}), simToday=${simToday}, list=${JSON.stringify(list && list.map(t => t.name))}`);
+  }
+  {
+    // 连续多周未开只补一次：base=本地今天，模拟 21 天后打开 → 只生成 base+21 那一期
+    const { body: created } = await post('/api/main-tasks', {
+      name: '多周未开任务', content: 'x', priority: 5, status: '进行中',
+      task_date: isoDate(0), start_date: isoDate(0),
+      repeat_frequency: 'weekly', repeat_base_date: isoDate(0),
+      sub_tasks: [],
+    });
+    await post('/api/debug/ensure-daily', { today: isoDate(21) });
+    const expectDate = isoDate(21);
+    const { body: all } = await get(`/api/main-tasks?date=${expectDate}`);
+    const matches = (all || []).filter(t => t.name === `多周未开任务-${expectDate.replace(/-/g, '')}`);
+    const ok = matches.length === 1;
+    record('连续多周未开只补一次', ok,
+      ok ? `created=${matches.length}` : `matches=${matches.length}`);
+  }
+  {
+    // 停止重复：删除未来实例 + 清空字段
+    const { body: created } = await post('/api/main-tasks', {
+      name: '停止重复任务', content: 'x', priority: 5, status: '进行中',
+      task_date: isoDate(0), start_date: isoDate(0),
+      repeat_frequency: 'weekly', repeat_base_date: isoDate(0),
+      sub_tasks: [],
+    });
+    const futureDate = isoDate(7);
+    await post('/api/debug/ensure-daily', { today: futureDate });
+    const futSuffix = futureDate.replace(/-/g, '');
+    const before = await get(`/api/main-tasks?date=${futureDate}`);
+    const hadFuture = (before.body || []).some(t => t.name === `停止重复任务-${futSuffix}`);
+    const r = await put(`/api/repeats/${created.id}/stop`);
+    const after = await get(`/api/main-tasks?date=${futureDate}`);
+    const goneFuture = !(after.body || []).some(t => t.name === `停止重复任务-${futSuffix}`);
+    const task = await get(`/api/main-tasks/${created.id}`);
+    const repeats = await get('/api/repeats');
+    const ok = r.status === 200 && hadFuture && goneFuture
+      && task.body.repeat_frequency === 'none'
+      && !(repeats.body || []).some(t => t.id === created.id);
+    record('停止重复（删除未来实例+清空字段）', ok,
+      ok ? `hadFuture=${hadFuture}, gone=${goneFuture}` : `had=${hadFuture}, gone=${goneFuture}, freq=${task.body.repeat_frequency}`);
+  }
+  {
+    // 每周改每月：删除未来 weekly 实例，重建 monthly 实例
+    const { body: created } = await post('/api/main-tasks', {
+      name: '周改月任务', content: 'x', priority: 5, status: '进行中',
+      task_date: isoDate(0), start_date: isoDate(0),
+      repeat_frequency: 'weekly', repeat_base_date: isoDate(0),
+      sub_tasks: [],
+    });
+    const futureDate = isoDate(7);
+    const futSuffix = futureDate.replace(/-/g, '');
+    await post('/api/debug/ensure-daily', { today: futureDate });
+    const r = await put(`/api/repeats/${created.id}`, { frequency: 'monthly' });
+    const weeklyGone = await get(`/api/main-tasks?date=${futureDate}`);
+    const wGone = !(weeklyGone.body || []).some(t => t.name === `周改月任务-${futSuffix}`);
+    const task = await get(`/api/main-tasks/${created.id}`);
+    // monthly 下一期 = 下月同日（clamp），一定 > 今天
+    const d = new Date(); d.setMonth(d.getMonth() + 1);
+    const nextSuffix = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
+    const nextDate = `${nextSuffix.slice(0, 4)}-${nextSuffix.slice(4, 6)}-${nextSuffix.slice(6, 8)}`;
+    const monthInst = await get(`/api/main-tasks?date=${nextDate}`);
+    const mOk = (monthInst.body || []).some(t => t.name === `周改月任务-${nextSuffix}`);
+    const ok = r.status === 200 && wGone && mOk && task.body.repeat_frequency === 'monthly';
+    record('每周改每月（删除未来+重建下一期）', ok,
+      ok ? `weeklyGone=${wGone}, monthly=${nextDate}` : `wGone=${wGone}, mOk=${mOk}, freq=${task.body.repeat_frequency}`);
+  }
+  {
+    // 设置页重复任务列表查询
+    const { body: created } = await post('/api/main-tasks', {
+      name: '列表查询任务', content: 'x', priority: 5, status: '进行中',
+      task_date: TEST_DATE, start_date: TEST_DATE,
+      repeat_frequency: 'monthly', repeat_base_date: TEST_DATE,
+      sub_tasks: [],
+    });
+    const { status, body } = await get('/api/repeats');
+    const item = (body || []).find(t => t.id === created.id);
+    const ok = status === 200 && !!item && item.repeat_frequency === 'monthly' && item.repeat_base_date === TEST_DATE;
+    await put(`/api/repeats/${created.id}/stop`);
+    record('设置页重复任务列表查询', ok,
+      ok ? `item=${item.name}` : `body=${JSON.stringify(body)}`);
+  }
+  {
+    // 跨日继承尊重 start_date：start_date=明天 → 今天列表无该任务，明天列表有
+    const tomorrow = isoDate(1);
+    const { body: created } = await post('/api/main-tasks', {
+      name: '未来开始任务', content: 'x', priority: 5, status: '进行中',
+      task_date: isoDate(0), start_date: tomorrow,
+      sub_tasks: [],
+    });
+    const todayList = await get(`/api/main-tasks?date=${isoDate(0)}`);
+    const tomorrowList = await get(`/api/main-tasks?date=${tomorrow}`);
+    const ok = !(todayList.body || []).some(t => t.id === created.id)
+      && (tomorrowList.body || []).some(t => t.id === created.id);
+    record('跨日继承尊重 start_date（未来任务留在原地）', ok,
+      `today=${(todayList.body || []).some(t => t.id === created.id)}, tomorrow=${(tomorrowList.body || []).some(t => t.id === created.id)}`);
+  }
+  {
+    // 新建任务以 start_date 落点
+    const tomorrow = isoDate(1);
+    const { body: created } = await post('/api/main-tasks', {
+      name: '落点任务', content: 'x', priority: 5, status: '进行中',
+      task_date: TEST_DATE, start_date: tomorrow,
+      sub_tasks: [],
+    });
+    const ok = created.task_date === tomorrow && created.start_date === tomorrow;
+    record('新建任务以 start_date 落点', ok,
+      `task_date=${created.task_date}, start_date=${created.start_date}`);
+  }
+  {
+    // AI 划重点：无内容 400；带内容时（未解锁 400 / 调用失败 500 / 成功返回 highlights 结构）
+    const r1 = await post('/api/ai/highlight', { fields: {} });
+    const r2 = await post('/api/ai/highlight', { fields: { name: '测试任务' } });
+    const ok = r1.status === 400
+      && (r2.status === 400 || r2.status === 500
+        || (r2.status === 200 && r2.body && Array.isArray(r2.body.highlights) && Array.isArray(r2.body.follow_up_questions)));
+    record('AI 划重点接口校验（空输入/结构）', ok,
+      `r1=${r1.status}, r2=${r2.status} body=${r2.body && typeof r2.body === 'object' ? JSON.stringify(r2.body).slice(0, 120) : String(r2.body)}`);
+  }
 }
 
 // ─── 主流程 ────────────────────────────────────────────

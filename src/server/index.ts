@@ -45,6 +45,10 @@ import {
   getStatusHistory,
   getTimelineRows,
   updateTaskTime,
+  getRepeatTasks,
+  getCurrentRepeatInstance,
+  applyRepeatFrequencyChange,
+  stopRepeatTask,
 } from './database';
 import { te, getReqLang } from './messages';
 
@@ -314,6 +318,36 @@ app.get('/api/status-history', (req, res) => {
     if (!taskId) return res.status(400).json({ error: te(getReqLang(req), 'param.invalid') });
     res.json(getStatusHistory(taskType, taskId));
   } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// ==================== Repeat tasks ====================
+
+app.get('/api/repeats', (_req, res) => {
+  try {
+    res.json(getRepeatTasks());
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/repeats/:id/current', (req, res) => {
+  try {
+    const task = getCurrentRepeatInstance(Number(req.params.id));
+    res.json(task);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/repeats/:id', (req, res) => {
+  try {
+    const freq = req.body.frequency === 'monthly' ? 'monthly' : req.body.frequency === 'weekly' ? 'weekly' : 'none';
+    applyRepeatFrequencyChange(Number(req.params.id), freq);
+    res.json({ success: true });
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+app.put('/api/repeats/:id/stop', (req, res) => {
+  try {
+    stopRepeatTask(Number(req.params.id));
+    res.json({ success: true });
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
 });
 
 // ==================== SubTask ordering ====================
@@ -697,6 +731,62 @@ app.post('/api/ai/parse', async (req, res) => {
   }
 });
 
+// ==================== AI Highlight (表单划重点) ====================
+
+app.post('/api/ai/highlight', async (req, res) => {
+  try {
+    const { fields } = req.body;
+    if (!fields || typeof fields !== 'object' || Object.keys(fields).length === 0) {
+      return res.status(400).json({ error: te(getReqLang(req), 'ai.noInput') });
+    }
+    const apiKey = unlockedApiKey;
+    if (!apiKey) {
+      return res.status(400).json({ error: te(getReqLang(req), 'ai.locked') });
+    }
+
+    const OpenAI = require('openai');
+    const client = new OpenAI({ baseURL: 'https://api.deepseek.com', apiKey });
+
+    const system = `你是任务管理助手的参谋。阅读用户填写的任务表单内容，指出值得注意的重点、潜在风险、可能的遗漏。不要修改原文，只做标注和分析。
+只输出 JSON，结构如下：
+{"highlights":[{"field":"字段键","original_text":"原文摘录（必须与原文一字不差）","reason":"高亮理由","suggestion":"建议"}],"follow_up_questions":["启发性追问"]}
+规则：
+- field 必须使用输入中给出的字段键。
+- original_text 必须是输入原文中真实存在的片段。
+- 没有值得标注的内容时 highlights 为空数组。
+- 只返回 JSON，不要其他文字。`;
+
+    const response = await client.chat.completions.create({
+      model: 'deepseek-chat',
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: JSON.stringify(fields) },
+      ],
+      temperature: 0.3, max_tokens: 2000,
+    });
+
+    let text = response.choices[0]?.message?.content || '';
+    text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+    const parsed = JSON.parse(text);
+
+    const highlights = (Array.isArray(parsed.highlights) ? parsed.highlights : [])
+      .map((h: any) => ({
+        field: String(h.field || ''),
+        original_text: String(h.original_text || ''),
+        reason: String(h.reason || ''),
+        suggestion: String(h.suggestion || ''),
+      }))
+      .filter((h: any) => h.field && h.original_text);
+    const followUp = (Array.isArray(parsed.follow_up_questions) ? parsed.follow_up_questions : [])
+      .map((q: any) => String(q || ''))
+      .filter((q: string) => q);
+
+    res.json({ highlights, follow_up_questions: followUp });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'AI 划重点失败' });
+  }
+});
+
 // ==================== Fallback: SPA routing ====================
 
 app.get('*', (req, res, next) => {
@@ -733,7 +823,11 @@ app.get('/api/themes', (req, res) => {
 // ==================== Debug (test helpers) ====================
 
 app.post('/api/debug/ensure-daily', (req, res) => {
-  try { ensureDailyRecords(); res.json({ success: true }); }
+  try {
+    const today = typeof req.body?.today === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.body.today) ? req.body.today : undefined;
+    ensureDailyRecords(today);
+    res.json({ success: true });
+  }
   catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
