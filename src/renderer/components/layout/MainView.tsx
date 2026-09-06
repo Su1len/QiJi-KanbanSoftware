@@ -9,6 +9,7 @@ import TimelineView from '../timeline/TimelineView';
 import BottomBar from '../bottom/BottomBar';
 import TaskFormDialog from '../dialogs/TaskFormDialog';
 import ThemeBackground from '../common/ThemeBackground';
+import DynamicBackground from '../common/DynamicBackground';
 import SettingsDialog from '../dialogs/SettingsDialog';
 import AIDialog from '../dialogs/AIDialog';
 import RetrospectDialog from '../dialogs/RetrospectDialog';
@@ -72,7 +73,9 @@ const MainView: React.FC<MainViewProps> = (props) => {
   const [navigateProject, setNavigateProject] = React.useState<string | null>(null);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden', position: 'relative' }}>
+    {/* 动态背景：主视图最底层，鼠标穿透，仅覆盖主视图（设置页/对话框为独立 Modal 不受影响） */}
+    <DynamicBackground />
     {/* Top Navigation */}
     <div style={{ flexShrink: 0, padding: '0 16px' }}>
       <SearchBox viewMode={props.viewMode}

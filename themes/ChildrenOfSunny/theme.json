@@ -1,0 +1,62 @@
+{
+  "themeName": "桑尼之子",
+  "themeNameEn": "Children of Sunny",
+  "themeAuthor": "桑尼之子 昭深",
+  "version": "1.0.0",
+  "darkMode": false,
+  "languages": [
+    "zh",
+    "en"
+  ],
+  "colorScheme": {
+    "bgPrimary": "#fdf6e9",
+    "bgSecondary": "#f7ecd8",
+    "bgCard": "#fffdf7",
+    "bgHover": "#f3e6c8",
+    "accent": "#d98e32",
+    "accentHover": "#e8a54d",
+    "textPrimary": "#3d3423",
+    "textSecondary": "#7a6c50",
+    "textMuted": "#b0a488",
+    "border": "#e5d5b0",
+    "success": "#52a447",
+    "warning": "#e0a03a",
+    "danger": "#d4584a",
+    "info": "#4a90b0"
+  },
+  "fontOverrides": {
+    "titleFont": "\"Microsoft YaHei\", \"PingFang SC\", sans-serif",
+    "bodyFont": "\"Microsoft YaHei\", \"PingFang SC\", sans-serif"
+  },
+  "textOverrides": {
+    "newTaskButton-zh": "点亮微光",
+    "newTaskButton-en": "Light a Mote",
+    "deleteTaskButton-zh": "熄灭微光",
+    "deleteTaskButton-en": "Extinguish",
+    "aiAssistantButton-zh": "AI 参谋",
+    "aiAssistantButton-en": "AI Advisor",
+    "nextSubTaskButton-zh": "下一束微光",
+    "nextSubTaskButton-en": "Next Mote",
+    "completeButton-zh": "微光落地",
+    "completeButton-en": "Land It",
+    "cancelButton-zh": "微光暂歇",
+    "cancelButton-en": "Rest It",
+    "currentMainTask-zh": "当前微光",
+    "currentMainTask-en": "Current Mote",
+    "currentSubTask-zh": "当前细流",
+    "currentSubTask-en": "Current Stream",
+    "currentHints-zh": "微光指引",
+    "currentHints-en": "Mote Guide"
+  },
+  "imageOverrides": [
+    {
+      "targetComponent": "MainContent",
+      "imagePath": "/themes/ChildrenOfSunny/bg.png",
+      "opacity": 0.55,
+      "position": "center",
+      "size": "cover"
+    }
+  ],
+  "dynamicBackground": "ChildrenOfSunny.html",
+  "dynamicBackgroundEnabled": true
+}

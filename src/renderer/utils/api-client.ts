@@ -158,6 +158,11 @@ export const api = {
   getReportSummary: (since: string) =>
     request<{ mainTasks: number; subTasks: number }>('GET', `/api/report/summary?since=${since}`),
 
+  // Themes（动态皮肤）
+  getThemesMeta: () => request<any[]>('GET', '/api/themes/meta'),
+  setThemeDynamic: (name: string, enabled: boolean) =>
+    request<any>('PUT', `/api/themes/${encodeURIComponent(name)}/dynamic`, { enabled }),
+
   // Backup
   downloadBackup: () => {
     const a = document.createElement('a');

@@ -820,6 +820,103 @@ app.get('/api/themes', (req, res) => {
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
+// 主题元信息（含动态背景字段，供设置页开关与前端判断）
+app.get('/api/themes/meta', (_req, res) => {
+  try {
+    const themesDir = path.join(__dirname, '..', '..', 'themes');
+    if (!fs.existsSync(themesDir)) { res.json([]); return; }
+    const metas: any[] = [];
+    const dirs = fs.readdirSync(themesDir, { withFileTypes: true }).filter((d: any) => d.isDirectory());
+    for (const d of dirs) {
+      const themeJson = path.join(themesDir, d.name, 'theme.json');
+      if (!fs.existsSync(themeJson)) continue;
+      try {
+        const raw = JSON.parse(fs.readFileSync(themeJson, 'utf8'));
+        if (raw.hidden === true) continue;
+        metas.push({
+          key: d.name,
+          themeName: raw.themeName || d.name,
+          themeNameEn: raw.themeNameEn || '',
+          dynamicBackground: raw.dynamicBackground || null,
+          dynamicBackgroundEnabled: raw.dynamicBackgroundEnabled === true,
+        });
+      } catch {}
+    }
+    res.json(metas);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// 动态背景开关持久化：直接改写主题文件夹内 theme.json 的 dynamicBackgroundEnabled
+app.put('/api/themes/:name/dynamic', (req, res) => {
+  try {
+    const name = String(req.params.name || '');
+    if (!/^[A-Za-z0-9_-]+$/.test(name)) return res.status(400).json({ error: te(getReqLang(req), 'param.invalid') });
+    const themeFile = path.join(__dirname, '..', '..', 'themes', name, 'theme.json');
+    if (!fs.existsSync(themeFile)) return res.status(404).json({ error: 'theme not found' });
+    const raw = JSON.parse(fs.readFileSync(themeFile, 'utf8'));
+    if (!raw.dynamicBackground) return res.status(400).json({ error: 'no dynamic background' });
+    raw.dynamicBackgroundEnabled = req.body.enabled === true;
+    fs.writeFileSync(themeFile, JSON.stringify(raw, null, 2), 'utf8');
+    res.json({ success: true, dynamicBackgroundEnabled: raw.dynamicBackgroundEnabled });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// 动态背景外层 wrapper：空白文档 + 内层沙箱 iframe + 自身父窗口隔离
+app.get('/api/theme-dynamic/:name', (req, res) => {
+  const name = String(req.params.name || '');
+  if (!/^[A-Za-z0-9_-]+$/.test(name)) return res.status(404).send('not found');
+  const themeFile = path.join(__dirname, '..', '..', 'themes', name, 'theme.json');
+  if (!fs.existsSync(themeFile)) return res.status(404).send('not found');
+  let htmlName = '';
+  try {
+    const raw = JSON.parse(fs.readFileSync(themeFile, 'utf8'));
+    htmlName = String(raw.dynamicBackground || '');
+  } catch {}
+  const skinFile = path.join(__dirname, '..', '..', 'themes', name, htmlName);
+  if (!htmlName || !fs.existsSync(skinFile)) return res.status(404).send('not found');
+  const isSelfTest = req.query.selftest === '1';
+  // wrapper 自身把 parent/top 指向自己，皮肤脚本即使拿到 wrapper 也无法穿透到看板
+  const guard = '<script>try{Object.defineProperty(window,"parent",{get:function(){return window;}});Object.defineProperty(window,"top",{get:function(){return window;}});}catch(e){try{window.parent=window;window.top=window;}catch(_e){}}</script>';
+  const wrapperCsp = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; frame-src 'self'";
+  const skinUrl = `/api/theme-skin/${encodeURIComponent(name)}`;
+  const wrapperHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="${wrapperCsp}">${guard}<style>html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:transparent}</style></head><body><iframe sandbox="allow-scripts" src="${skinUrl}" style="width:100%;height:100%;border:0;display:block"></iframe></body></html>`;
+  res.setHeader('Content-Security-Policy', wrapperCsp);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(wrapperHtml);
+});
+
+// 动态皮肤内层：opaque origin 沙箱（sandbox allow-scripts 无 allow-same-origin）
+// 皮肤脚本无法访问任何父窗口；CSP 禁止网络请求；img 白名单仅本机回环
+app.get('/api/theme-skin/:name', (req, res) => {
+  const name = String(req.params.name || '');
+  if (!/^[A-Za-z0-9_-]+$/.test(name)) return res.status(404).send('not found');
+  const themeDir = path.join(__dirname, '..', '..', 'themes', name);
+  const themeFile = path.join(themeDir, 'theme.json');
+  if (!fs.existsSync(themeFile)) return res.status(404).send('not found');
+  let htmlName = '';
+  try {
+    const raw = JSON.parse(fs.readFileSync(themeFile, 'utf8'));
+    htmlName = String(raw.dynamicBackground || '');
+  } catch {}
+  const skinFile = path.join(themeDir, htmlName);
+  if (!htmlName || !fs.existsSync(skinFile)) return res.status(404).send('not found');
+  let html = fs.readFileSync(skinFile, 'utf8');
+  const host = String(req.headers.host || 'localhost:3456');
+  const csp = `default-src 'none'; img-src http://${host} data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; object-src 'none'; form-action 'none'`;
+  // 父窗口隔离（双保险：sandbox 边界 + guard 指向自身）
+  const guard = '<script>try{Object.defineProperty(window,"parent",{get:function(){return window;}});Object.defineProperty(window,"top",{get:function(){return window;}});}catch(e){try{window.parent=window;window.top=window;}catch(_e){}}</script>';
+  // <base> 指向主题文件夹，使 HTML 内的相对资源路径（如 ./bg.png）正确解析
+  const baseTag = `<base href="/themes/${name}/">`;
+  if (/<head[^>]*>/i.test(html)) {
+    html = html.replace(/<head[^>]*>/i, `<head>${baseTag}<meta http-equiv="Content-Security-Policy" content="${csp}">${guard}`);
+  } else {
+    html = `<head>${baseTag}<meta http-equiv="Content-Security-Policy" content="${csp}">${guard}</head>` + html;
+  }
+  res.setHeader('Content-Security-Policy', csp);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
+});
+
 // ==================== Debug (test helpers) ====================
 
 app.post('/api/debug/ensure-daily', (req, res) => {

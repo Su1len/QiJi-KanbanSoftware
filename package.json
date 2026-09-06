@@ -16,7 +16,7 @@
     "min_height": 540,
     "icon": "logo_qiji.png"
   },
-  "chromium-args": "--disable-background-networking --disable-component-update --disable-sync --disable-default-apps --no-first-run",
+  "chromium-args": "--disable-background-networking --disable-component-update --disable-sync --disable-default-apps --no-first-run --site-per-process",
   "scripts": {
     "build:server": "tsc -p tsconfig.server.json",
     "build:renderer": "webpack --mode production",

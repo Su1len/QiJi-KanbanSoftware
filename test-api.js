@@ -1033,6 +1033,74 @@ async function runTests() {
     record('AI 划重点接口校验（空输入/结构）', ok,
       `r1=${r1.status}, r2=${r2.status} body=${r2.body && typeof r2.body === 'object' ? JSON.stringify(r2.body).slice(0, 120) : String(r2.body)}`);
   }
+
+  // ── 用例 61-66：HTML 动态皮肤（V1.0.1） ──
+  {
+    // 主题扫描识别带 dynamicBackground 字段的主题
+    const { status, body } = await get('/api/themes/meta');
+    const sunny = (body || []).find(t => t.key === 'ChildrenOfSunny');
+    const keys = await get('/api/themes');
+    const ok = status === 200 && !!sunny
+      && sunny.dynamicBackground === 'ChildrenOfSunny.html'
+      && (keys.body || []).includes('ChildrenOfSunny');
+    record('主题扫描识别动态皮肤（ChildrenOfSunny）', ok,
+      ok ? `dynamic=${sunny.dynamicBackground}, enabled=${sunny.dynamicBackgroundEnabled}` : `body=${JSON.stringify(body)}`);
+  }
+  {
+    // 旧静态主题不受新字段影响
+    const { status, body } = await get('/api/themes/meta');
+    const staticThemes = (body || []).filter(t => ['light-gray', 'dark-blue', 'dark-green', 'warm-orange'].includes(t.key));
+    const ok = status === 200 && staticThemes.length === 4
+      && staticThemes.every(t => t.dynamicBackground === null);
+    record('旧静态主题不受新字段影响（无 dynamicBackground）', ok,
+      `staticThemes=${staticThemes.length}`);
+  }
+  {
+    // dynamicBackgroundEnabled 开关持久化（写入 theme.json，测后还原为 true）
+    const rOff = await put('/api/themes/ChildrenOfSunny/dynamic', { enabled: false });
+    const metaOff = await get('/api/themes/meta');
+    const offOk = rOff.status === 200
+      && (metaOff.body || []).find(t => t.key === 'ChildrenOfSunny')?.dynamicBackgroundEnabled === false;
+    const rOn = await put('/api/themes/ChildrenOfSunny/dynamic', { enabled: true });
+    const metaOn = await get('/api/themes/meta');
+    const onOk = rOn.status === 200
+      && (metaOn.body || []).find(t => t.key === 'ChildrenOfSunny')?.dynamicBackgroundEnabled === true;
+    record('动态开关持久化（关→开，theme.json 写回）', offOk && onOk,
+      `off=${offOk}, on=${onOk}`);
+  }
+  {
+    // 沙箱安全：内层皮肤（CSP + guard + base）与外层 wrapper（sandbox iframe + guard）
+    const rSkin = await request('GET', '/api/theme-skin/ChildrenOfSunny');
+    const skin = typeof rSkin.body === 'string' ? rSkin.body : '';
+    const rWrap = await request('GET', '/api/theme-dynamic/ChildrenOfSunny');
+    const wrap = typeof rWrap.body === 'string' ? rWrap.body : '';
+    const ok = rSkin.status === 200
+      && skin.includes('Content-Security-Policy')
+      && skin.includes("connect-src 'none'")
+      && skin.includes('Object.defineProperty(window,"parent"')
+      && skin.includes('Object.defineProperty(window,"top"')
+      && skin.includes('<base href="/themes/ChildrenOfSunny/">')
+      && rWrap.status === 200
+      && wrap.includes('sandbox="allow-scripts"')
+      && wrap.includes('Object.defineProperty(window,"parent"')
+      && !wrap.includes('allow-top-navigation');
+    record('沙箱安全（内层 CSP/guard/base + wrapper sandbox）', ok,
+      `skinCsp=${skin.includes("connect-src 'none'")}, wrapperSandbox=${wrap.includes('sandbox="allow-scripts"')}`);
+  }
+  {
+    // 无 dynamicBackground 的主题：开关接口拒绝（前端不显示开关的等价校验）
+    const r = await put('/api/themes/light-gray/dynamic', { enabled: true });
+    const ok = r.status === 400;
+    record('无动态背景的主题开关接口被拒（400）', ok,
+      `status=${r.status}`);
+  }
+  {
+    // 异常路径：无动态主题的动态 HTML 路由返回 404（前端据此降级）
+    const r = await request('GET', '/api/theme-dynamic/light-gray');
+    const ok = r.status === 404;
+    record('动态背景异常路径返回 404（触发降级）', ok,
+      `status=${r.status}`);
+  }
 }
 
 // ─── 主流程 ────────────────────────────────────────────

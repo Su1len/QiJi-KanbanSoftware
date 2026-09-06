@@ -15,7 +15,7 @@ import dayjs from 'dayjs';
 const { RangePicker } = DatePicker;
 
 const SettingsDialog: React.FC<{ onClose: () => void; initialTab?: string; onOpenTask?: (task: MainTask) => void }> = ({ onClose, initialTab, onOpenTask }) => {
-  const { themeName, setTheme, availableThemes, theme } = useTheme();
+  const { themeName, setTheme, availableThemes, theme, setDynamicEnabled } = useTheme();
   const { mode, setMode } = useMode();
   const { lang, setLang, t } = useLang();
   const [activeTab, setActiveTab] = useState(initialTab || 'skin');
@@ -155,6 +155,22 @@ const SettingsDialog: React.FC<{ onClose: () => void; initialTab?: string; onOpe
               ]}
             />
           </div>
+          {theme.dynamicBackground && (
+            <div style={{ marginTop: 16 }}>
+              <p style={{ marginBottom: 8, color: 'var(--color-text-secondary)', fontSize: 13 }}>
+                {t('set.dynamicEffect')}
+              </p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <Switch
+                  checked={theme.dynamicBackgroundEnabled === true}
+                  onChange={(checked) => setDynamicEnabled(checked)}
+                />
+                <span style={{ color: 'var(--color-text-secondary)', fontSize: 13 }}>
+                  {theme.dynamicBackgroundEnabled === true ? t('set.dynamicOn') : t('set.dynamicOff')}
+                </span>
+              </div>
+            </div>
+          )}
           <div style={{ marginTop: 16 }}>
             <p style={{ marginBottom: 8, color: 'var(--color-text-secondary)', fontSize: 13 }}>
               {t('set.mode')}

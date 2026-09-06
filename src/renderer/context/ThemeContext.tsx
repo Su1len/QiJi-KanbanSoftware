@@ -37,6 +37,9 @@ export interface ThemeDefinition {
   fontOverrides: FontOverrides;
   textOverrides: Record<string, string>;
   imageOverrides: ImageOverride[];
+  // HTML 动态背景（V1.0.1）：文件名位于主题文件夹内；enabled 由设置页开关持久化到 theme.json
+  dynamicBackground?: string;
+  dynamicBackgroundEnabled?: boolean;
 }
 
 const DEFAULT_THEME: ThemeDefinition = {
@@ -65,6 +68,7 @@ interface ThemeContextType {
   theme: ThemeDefinition;
   themeName: string;
   setTheme: (name: string) => Promise<void>;
+  setDynamicEnabled: (enabled: boolean) => Promise<void>;
   availableThemes: ThemeEntry[];
   t: (key: string, defaultText: string) => string;
 }
@@ -73,6 +77,7 @@ const ThemeContext = createContext<ThemeContextType>({
   theme: DEFAULT_THEME,
   themeName: 'light-gray',
   setTheme: async () => {},
+  setDynamicEnabled: async () => {},
   availableThemes: [{ key: 'light-gray', name: '浅灰' }],
   t: (_k, d) => d,
 });
@@ -183,6 +188,8 @@ function validateTheme(raw: any, name: string): ThemeDefinition {
     fontOverrides,
     textOverrides: raw.textOverrides && typeof raw.textOverrides === 'object' ? raw.textOverrides : {},
     imageOverrides,
+    dynamicBackground: typeof raw.dynamicBackground === 'string' && raw.dynamicBackground ? raw.dynamicBackground : undefined,
+    dynamicBackgroundEnabled: raw.dynamicBackgroundEnabled === true,
   };
 }
 
@@ -259,6 +266,17 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     await api.setSetting('theme', name);
   }, []);
 
+  // 动态背景开关：持久化到该主题的 theme.json（重启后保持）
+  const setDynamicEnabled = useCallback(async (enabled: boolean) => {
+    if (!theme.dynamicBackground) return;
+    try {
+      await api.setThemeDynamic(themeName, enabled);
+      setThemeState(prev => ({ ...prev, dynamicBackgroundEnabled: enabled }));
+    } catch (e) {
+      console.warn('[Theme] 动态背景开关保存失败:', (e as any)?.message);
+    }
+  }, [theme.dynamicBackground, themeName]);
+
   const t = useCallback((key: string, defaultText: string): string => {
     // 多语言文案覆盖：theme.json 中以 "key-zh" / "key-en" 形式提供
     const override = theme.textOverrides[key + '-' + currentLang];
@@ -268,7 +286,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   if (!loaded) return <>{children}</>; // Render children with default theme while loading
 
   return (
-    <ThemeContext.Provider value={{ theme, themeName, setTheme: switchTheme, availableThemes, t }}>
+    <ThemeContext.Provider value={{ theme, themeName, setTheme: switchTheme, setDynamicEnabled, availableThemes, t }}>
       {children}
     </ThemeContext.Provider>
   );
