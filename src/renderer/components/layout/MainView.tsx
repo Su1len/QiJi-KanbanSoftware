@@ -77,7 +77,7 @@ const MainView: React.FC<MainViewProps> = (props) => {
     {/* 动态背景：主视图最底层，鼠标穿透，仅覆盖主视图（设置页/对话框为独立 Modal 不受影响） */}
     <DynamicBackground />
     {/* Top Navigation */}
-    <div style={{ flexShrink: 0, padding: '0 16px' }}>
+    <div style={{ flexShrink: 0, padding: '0 16px', backgroundColor: 'var(--color-topnav-bg, transparent)' }}>
       <SearchBox viewMode={props.viewMode}
         onNavigateToDate={(date, switchView) => {
           props.onSearchChange('');

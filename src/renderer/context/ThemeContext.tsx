@@ -9,6 +9,8 @@ export interface ColorScheme {
   textPrimary: string; textSecondary: string; textMuted: string;
   border: string;
   success: string; warning: string; danger: string; info: string;
+  // 可选：顶部导航栏背景（动态皮肤下可用半透明色保证日期文字可读）
+  topNavBg?: string;
 }
 
 export interface FontOverrides {
@@ -105,6 +107,8 @@ function applyColorScheme(cs: ColorScheme): void {
   }
   // Font
   root.style.setProperty('--font-family', cs.textPrimary); // will be overridden
+  // 顶栏背景：无配置时透明（动态背景透出，静态主题行为不变）
+  root.style.setProperty('--color-topnav-bg', cs.topNavBg || 'transparent');
 }
 
 function validateTheme(raw: any, name: string): ThemeDefinition {
@@ -132,6 +136,7 @@ function validateTheme(raw: any, name: string): ThemeDefinition {
     warning:      rawCS.warning      || defaults.warning,
     danger:       rawCS.danger       || defaults.danger,
     info:         rawCS.info         || defaults.info,
+    topNavBg:     typeof rawCS.topNavBg === 'string' ? rawCS.topNavBg : undefined,
   };
 
   // Log warnings for missing colors
