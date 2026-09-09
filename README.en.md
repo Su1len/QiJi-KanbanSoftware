@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-Qiji Kanban is a simple, lightweight task management kanban tool for Windows. All task data is stored in a local database. A built-in AI assistant turns natural language into structured tasks.
+Qiji Kanban is a simple, lightweight task management kanban tool for Windows. All task data is stored in a local database. A built-in AI assistant turns natural language into structured tasks. Current version V1.0.1 adds the timeline view, auto repeat tasks, AI form highlighting, HTML dynamic skins (Children of Sunny theme) and full Chinese/English bilingual support.
 
 ---
 
@@ -20,23 +20,35 @@ Every task is organized around seven dimensions — **T**arget & Purpose, **R**e
 
 Sub-tasks support dependency chains ("next" links), showing which sub-task is currently in progress and auto-jumping to the next one after completion. Sub-tasks can set their own attributes or inherit from the main task — flexible without redundancy.
 
-### Dual Views
+### Triple Views
 
-> "Whether you prefer a date-based list or a project-based kanban, both are right here."
+> "Whether you prefer a date-based list, a project-based kanban, or a timeline of 30-day bars, all are right here."
 
-The Date view manages tasks day by day; the Project view manages them as draggable cards. Both views share the same database, so data stays naturally in sync.
+The Date view manages tasks day by day; the Project view manages them as draggable cards; the Timeline view renders sub-tasks as 30-day bars that you can shift with a whole-bar drag. All views share the same database, so data stays naturally in sync.
 
 ### AI Assistant (powered by the DeepSeek API)
 
 > "Just say it, and let AI sort your tasks out."
 
-Describe a task in natural language, and the AI structures it into the THEMRPR format and pre-fills the form. Multiple tasks can be created from a single sentence.
+Describe a task in natural language, and the AI structures it into the THEMRPR format and pre-fills the form. Multiple tasks can be created from a single sentence. The task form also offers **AI Highlighting**: one click to review what you have filled in, pointing out key points, potential risks and omissions — accept and the matching text turns red.
+
+### Auto Repeat Tasks
+
+> "Periodic work, scheduled automatically."
+
+Support weekly and monthly repeats. The app auto-creates the latest occurrence on every launch and at day rollover (date-suffixed name, full sub-task copies), never duplicating. Manage all repeat tasks centrally in Settings — stop repeating or switch the frequency in one click.
 
 ### Themes & Customization Without Compiling
 
 > "Dress your kanban in your favorite skin and make task management a little happier."
 
-Four built-in themes (Deep Blue, Dark Green, Warm Orange, Light Gray) apply instantly. You can craft your own skin by dropping a custom theme folder into `themes/` — it is recognized automatically after restart.
+Four built-in static themes (Deep Blue, Dark Green, Warm Orange, Light Gray), plus the hand-drawn **Children of Sunny** dynamic theme (mote & meteor animations with a frosted-glass interface). Craft your own skin with a static image or a dynamic HTML file (dynamic skins run in a sandboxed environment and cannot touch your data) — drop the theme folder into `themes/` and it is recognized after restart.
+
+### Bilingual Chinese / English
+
+> "中文、English — switch anytime."
+
+Full bilingual UI — one click in Settings and it takes effect instantly. Server error messages, changelog and quotes are all provided in both languages.
 
 ### A Complete Review Workflow
 
@@ -90,12 +102,13 @@ Precisely because bloated features were dropped, the whole software stays lightw
 
 | Table | Description |
 |-------|-------------|
-| `main_tasks` | Main tasks (THEMRPR framework + project name) |
-| `sub_tasks` | Sub-tasks (with "next" dependency chains) |
+| `main_tasks` | Main tasks (THEMRPR framework + project name + repeat settings) |
+| `sub_tasks` | Sub-tasks (with "next" dependency chains, start/end dates) |
 | `daily_records` | Daily records (cross-day carry-over) |
 | `progress_reports` | Progress reports (auto-generated) |
 | `retrospectives` | Reviews (plan vs. actual) |
-| `settings` | System settings (theme, mode, API key, etc.) |
+| `status_change_history` | Status change history (every change fully recorded) |
+| `settings` | System settings (theme, mode, language, etc.) |
 
 ---
 
@@ -110,7 +123,8 @@ MIT License (c) 2026 Zhaoshen
 ### Data & Privacy
 
 - All data (board content, configuration, API key) is stored **only in local files on your disk**. The app has **no cloud sync or remote reporting** of any kind.
-- Back up your `.db` file regularly to prevent data loss from disk failure or misuse.
+- Back up your `.db` file regularly to prevent data loss from disk failure or misuse. Settings provides **database backup download and import restore** (with file-header validation).
+- Security hardening: the server listens on loopback only; CORS allows local origins only; an access token blocks cross-site blind requests; the DeepSeek key is stored AES-256-GCM encrypted; the dependency tree is kept at 0 known vulnerabilities (npm audit).
 
 ### AI Feature Notes
 

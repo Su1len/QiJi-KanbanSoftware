@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Tabs, Button, DatePicker, Input, message, Select, TimePicker, Switch } from 'antd';
+import { Modal, Tabs, Button, DatePicker, Input, message, Select, TimePicker, Switch, Upload } from 'antd';
 import { api } from '../../utils/api-client';
 import { useTheme } from '../../context/ThemeContext';
 import { useMode } from '../../context/ModeContext';
@@ -223,22 +223,24 @@ const SettingsDialog: React.FC<{ onClose: () => void; initialTab?: string; onOpe
             <p style={{ color: '#ff4d4f', fontSize: 13, marginBottom: 8 }}>
               {t('set.data.importWarn')}
             </p>
-            <input type="file" accept=".db" style={{ marginBottom: 8, display: 'block' }}
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                if (!confirm(t('set.data.importWarn'))) { e.target.value = ''; return; }
+            <Upload
+              accept=".db"
+              showUploadList={false}
+              beforeUpload={async (file) => {
+                if (!confirm(t('set.data.importWarn'))) return Upload.LIST_IGNORE;
                 try {
-                  const result = await api.uploadBackup(file);
+                  const result = await api.uploadBackup(file as File);
                   if (result.success) {
                     message.success(t('set.data.imported'));
                   } else {
                     message.error(result.error || t('data.importFail'));
                   }
                 } catch (err: any) { message.error(err.message || t('data.importFail')); }
-                e.target.value = '';
+                return Upload.LIST_IGNORE;
               }}
-            />
+            >
+              <Button>{t('set.data.importBtn')}</Button>
+            </Upload>
           </div>
         </div>
       ),

@@ -1,16 +1,29 @@
 [
   {
     "version": "1.0.1",
-    "date": "2026-08-17",
+    "date": "2026-09-09",
     "changes": [
       "Security: server now listens on 127.0.0.1 only - LAN devices cannot access it",
       "Security: CORS restricted to local origins - malicious web pages cannot read API data cross-origin",
       "Security: DeepSeek key no longer stored in plaintext - encrypted file + in-memory unlock only",
       "Security: access token verification - blind cross-site requests to local APIs are fully blocked",
+      "Security: new status change history table with a unified status-update entry - every change (create/complete/abandon/drag/batch) is recorded",
+      "Security: npm audit 0 vulnerabilities, dependency tree kept under continuous audit",
+      "Timeline view: new timeline view alongside date/project views - sub-tasks rendered as 30-day bars, whole-bar drag to shift dates, click/double-click/drag clearly separated",
+      "Auto repeat tasks: weekly/monthly repeat, latest occurrence auto-created on startup and at day rollover, date-suffixed names with full sub-task copies; manage centrally in Settings (stop / switch frequency)",
+      "AI form highlighting: one-click AI annotation in the task form - read-only layer shows highlights/reasons/suggestions/questions; accept marks the text red, cancel leaves the form unchanged",
+      "HTML dynamic skins: themes can provide dynamic HTML backgrounds (double sandbox + CSP + parent isolation), per-theme toggle persisted across restarts, graceful fallback to the static image on errors",
+      "New theme: Children of Sunny - hand-drawn warm theme with mote & meteor animations and frosted-glass translucency",
+      "Bilingual support: full Chinese/English UI switching, server error messages follow the language, bilingual quotes",
+      "Carry-over improvements: respects the task start date (future tasks stay put); new tasks land on their start date",
+      "Backup & restore: database download/import with header validation; import button text follows the language",
       "Fix: NW.js background processes lingering after closing the window (second launch unresponsive)",
       "Fix: task export switched to CSV download (UTF-8 BOM, opens directly in Excel), content verified",
+      "Fix: Morita quote Chinese/English mismatch (\"50 years\" was wrongly \"10 years/decade\")",
+      "Fix: date bar text invisible and dynamic background disappearing after idle under dynamic skins",
       "Cleanup: removed legacy Electron source, runtime and build toolchain (~500MB)",
-      "Cleanup: removed Claude Code related files and documentation wording"
+      "Cleanup: removed Claude Code related files and documentation wording",
+      "Automated tests: API regression suite expanded to 66 cases, all passing"
     ]
   },
   {

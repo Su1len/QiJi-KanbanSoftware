@@ -130,6 +130,7 @@ export const MSGS: Record<string, { zh: string; en: string }> = {
   'set.data.deleteAll': { zh: '一键删除所有任务', en: 'Delete all tasks' },
   'set.data.deleted': { zh: '所有任务已删除', en: 'All tasks deleted' },
   'set.data.importTitle': { zh: '导入备份', en: 'Import backup' },
+  'set.data.importBtn': { zh: '选择备份文件', en: 'Choose backup file' },
   'set.data.importWarn': { zh: '导入将覆盖当前所有数据，此操作不可撤销。', en: 'Importing will overwrite ALL current data. Irreversible.' },
   'set.data.imported': { zh: '数据已恢复，请重启应用', en: 'Data restored. Please restart the app.' },
   'set.api.key': { zh: 'DeepSeek API 密钥', en: 'DeepSeek API Key' },
@@ -266,7 +267,7 @@ export const MSGS: Record<string, { zh: string; en: string }> = {
   // 名人名言（9 条，中英双语）
   'quote.1': { zh: '我没有时间考虑过去，我只考虑未来。', en: 'I have no time to dwell on the past; I only think about the future.' },
   'quote.2': { zh: '即使是看上去无法实现的艰难目标，只要有计划地应对，就会将它实现，即使是毫无章法的事情也能够在短时间内完成。', en: 'Even seemingly impossible goals can be achieved with a plan; even chaotic tasks can be finished quickly.' },
-  'quote.3': { zh: '我现在就是要凭借我们的新产品，迈出缔造10年辉煌的第一步。等到10年后，我们公司的知名度一定会不亚于你们公司。', en: 'With our new product, we now take the first step toward a decade of glory. In ten years, our company will be as well known as yours.' },
+  'quote.3': { zh: '我现在就是要凭借我们的新产品，迈出缔造50年辉煌的第一步。等到50年后，我们公司的知名度一定会不亚于你们公司。', en: 'With our new product, we now take the first step toward fifty years of glory. In fifty years, our company will be as well known as yours.' },
   'quote.4': { zh: '教育是微光吸引微光、微光照亮微光、微光点燃微光、彼此温暖，彼此成全，同向同行，一起发光的过程。', en: 'Education is glimmers attracting glimmers, glimmers lighting glimmers, glimmers igniting glimmers - warming each other, fulfilling each other, walking the same path and shining together.' },
   'quote.5': { zh: '有两样东西比活着更加重要，一谓之尊严，一谓之价值。', en: 'Two things matter more than living: dignity, and value.' },
   'quote.6': { zh: '你将水倒入瓶子，水就变成了瓶子。你将水倒入茶壶，水就变成了茶壶。水既能静静流动，也能汹涌冲击。做水一样的人吧，我的朋友。', en: 'Pour water into a bottle and it becomes the bottle. Pour it into a teapot and it becomes the teapot. Water can flow quietly or crash fiercely. Be water, my friend.' },
