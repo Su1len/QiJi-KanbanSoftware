@@ -11,6 +11,8 @@ export interface ColorScheme {
   success: string; warning: string; danger: string; info: string;
   // 可选：顶部导航栏背景（动态皮肤下可用半透明色保证日期文字可读）
   topNavBg?: string;
+  // 可选：日期栏文字颜色（默认用 textPrimary）
+  dateText?: string;
 }
 
 export interface FontOverrides {
@@ -109,6 +111,8 @@ function applyColorScheme(cs: ColorScheme): void {
   root.style.setProperty('--font-family', cs.textPrimary); // will be overridden
   // 顶栏背景：无配置时透明（动态背景透出，静态主题行为不变）
   root.style.setProperty('--color-topnav-bg', cs.topNavBg || 'transparent');
+  // 日期栏文字：无配置时跟随主文字色
+  root.style.setProperty('--color-date-text', cs.dateText || cs.textPrimary);
 }
 
 function validateTheme(raw: any, name: string): ThemeDefinition {
@@ -137,6 +141,7 @@ function validateTheme(raw: any, name: string): ThemeDefinition {
     danger:       rawCS.danger       || defaults.danger,
     info:         rawCS.info         || defaults.info,
     topNavBg:     typeof rawCS.topNavBg === 'string' ? rawCS.topNavBg : undefined,
+    dateText:     typeof rawCS.dateText === 'string' ? rawCS.dateText : undefined,
   };
 
   // Log warnings for missing colors

@@ -28,7 +28,10 @@ Thumbs.db
 *.log
 *.bak
 
-# 个人/草稿文件
+# 发布安装包（每次发布重新生成，不入库）
+*.zip
+
+# 草稿/隐私文件
 github-push-guide.md
 logo_qiji.jpg
 readme-draft.md

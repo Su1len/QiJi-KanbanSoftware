@@ -17,7 +17,7 @@ const DateNavigator: React.FC<{
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, padding: '8px 0' }}>
       <Button type="text" icon={<DoubleLeftOutlined />} onClick={() => onNavigateMonth(-1)} />
       <Button type="text" icon={<LeftOutlined />} onClick={() => onNavigateWeek(-1)} />
-      <span style={{ fontSize: 14, fontWeight: 500, minWidth: 220, textAlign: 'center', userSelect: 'none', color: 'var(--color-text-primary)' }}>
+      <span style={{ fontSize: 14, fontWeight: 600, minWidth: 220, textAlign: 'center', userSelect: 'none', color: 'var(--color-date-text, var(--color-text-primary))' }}>
         {dateLabel}
       </span>
       <Button type="text" icon={<RightOutlined />} onClick={() => onNavigateWeek(1)} />
