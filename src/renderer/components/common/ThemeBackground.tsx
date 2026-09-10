@@ -5,8 +5,8 @@ const ThemeBackground: React.FC<{ targetComponent: string }> = ({ targetComponen
   const { theme } = useTheme();
   const overlays = theme.imageOverrides.filter(o => o.targetComponent === targetComponent);
   if (overlays.length === 0) return null;
-  // 动态背景启用时，主内容区静态底图让位给动态 HTML 层（HTML 自带 bg.png 底图）
-  if (targetComponent === 'MainContent' && theme.dynamicBackgroundEnabled === true && !!theme.dynamicBackground) {
+  // 动态背景启用时，静态底图让位给动态 HTML 层（HTML 自带 bg.png 底图）
+  if (targetComponent === 'AppRoot' && theme.dynamicBackgroundEnabled === true && !!theme.dynamicBackground) {
     return null;
   }
 

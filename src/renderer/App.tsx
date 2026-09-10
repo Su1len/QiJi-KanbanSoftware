@@ -9,6 +9,7 @@ import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { ModeProvider, useMode } from './context/ModeContext';
 import { LanguageProvider, useLang } from './context/LanguageContext';
 import ErrorBoundary from './components/common/ErrorBoundary';
+import ThemeBackground from './components/common/ThemeBackground';
 import WelcomePage from './components/WelcomePage';
 import Sidebar from './components/layout/Sidebar';
 import MainView from './components/layout/MainView';
@@ -299,11 +300,12 @@ const AppInner: React.FC = () => {
   return (
     <ConfigProvider locale={antdLocale} theme={antdTheme}>
       {loaded && !initialized && <WelcomePage />}
-      <Layout style={{ height: '100vh', backgroundColor: 'var(--color-bg-primary)' }}>
-        <Sider width="3.125vw" style={{ backgroundColor: 'var(--color-bg-secondary)', minWidth: 40 }}>
+      <Layout style={{ height: '100vh', backgroundColor: 'var(--color-bg-primary)', position: 'relative' }}>
+        <ThemeBackground targetComponent="AppRoot" />
+        <Sider width="3.125vw" style={{ backgroundColor: 'var(--color-bg-secondary)', minWidth: 40, zIndex: 1 }}>
           <Sidebar viewMode={viewMode} onChangeView={handleChangeView} onOpenSettings={() => { setSettingsTab('skin'); setShowSettings(true); }} />
         </Sider>
-        <Content style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', backgroundColor: 'var(--color-bg-primary)' }}>
+        <Content style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', backgroundColor: 'var(--color-bg-primary)', zIndex: 1 }}>
           <MainView
             viewMode={viewMode}
             onChangeView={handleChangeView}
