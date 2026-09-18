@@ -118,6 +118,26 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_status_history_task ON status_change_history(task_type, task_id, changed_at);
   `);
 
+  // 计时段表（V1.1.0，向后兼容迁移）
+  // start_time / end_time 为本地时间字符串 'YYYY-MM-DD HH:MM'（精确到分钟），
+  // end_time 为空表示正在进行中；duration 为分钟冗余值（停止时计算）。
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS time_segments (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id     INTEGER NOT NULL,
+      task_type   TEXT    NOT NULL,
+      start_time  TEXT    NOT NULL,
+      end_time    TEXT,
+      duration    INTEGER,
+      mode        TEXT    NOT NULL DEFAULT 'manual',
+      is_valid    INTEGER NOT NULL DEFAULT 1,
+      created_at  TEXT    NOT NULL,
+      updated_at  TEXT    NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_time_segments_task ON time_segments(task_type, task_id, start_time);
+    CREATE INDEX IF NOT EXISTS idx_time_segments_time ON time_segments(start_time);
+  `);
+
   // Migration: add next_sub_task_id if not exists
   try { db.exec('ALTER TABLE sub_tasks ADD COLUMN next_sub_task_id INTEGER DEFAULT NULL'); } catch(e) {}
   // Migration: project fields
@@ -137,6 +157,9 @@ export function initDatabase(): void {
   try { db.exec("ALTER TABLE main_tasks ADD COLUMN repeat_frequency TEXT DEFAULT 'none'"); } catch(e) {}
   try { db.exec('ALTER TABLE main_tasks ADD COLUMN repeat_base_date TEXT'); } catch(e) {}
   db.exec('CREATE INDEX IF NOT EXISTS idx_main_tasks_repeat ON main_tasks(repeat_frequency);');
+
+  // 启动清理：上次进程被强制终止留下的运行中计时段（闭合成 0 时长、标记待确认异常）
+  cleanupOrphanTimers();
 }
 
 function now(): string {
@@ -429,9 +452,19 @@ export function updateMainTask(id: number, data: any, lang: ServerLang = 'zh') {
       const task = getMainTask(id) as any;
       if (task) reassignLetters(task.task_date);
     }
-    // Handle sub_tasks: create new ones, resolve nextIndex
+    // Handle sub_tasks: remove deleted ones, create new ones, resolve nextIndex
     if (data.sub_tasks) {
       const subTasks: any[] = data.sub_tasks;
+      // 1) 被移除的子任务：级联删除（计时记录 + 状态变更记录一并清理）
+      const beforeSubs = db.prepare('SELECT id FROM sub_tasks WHERE main_task_id = ?').all(id) as any[];
+      const keepIds = new Set(subTasks.filter((st: any) => st.id).map((st: any) => st.id));
+      for (const s of beforeSubs) {
+        if (!keepIds.has(s.id)) deleteSubTaskCascade(s.id);
+      }
+      // 2) 原无子任务 → 新增子任务：主任务自身计时记录被清除（时间由子任务汇总）
+      if (beforeSubs.length === 0 && subTasks.some((st: any) => st.name && st.name.trim())) {
+        db.prepare("DELETE FROM time_segments WHERE task_type = 'main' AND task_id = ?").run(id);
+      }
       const indexToRealId: (number | null)[] = [];
       subTasks.forEach((st, i) => {
         if (st.id) {
@@ -476,6 +509,9 @@ export function deleteMainTask(id: number): void {
   const task = getMainTask(id) as any;
   if (!task) return;
   const taskDate = task.task_date;
+  // 清理主任务及其所有子任务的计时记录与状态变更历史
+  db.prepare("DELETE FROM time_segments WHERE (task_type = 'main' AND task_id = ?) OR (task_type = 'sub' AND task_id IN (SELECT id FROM sub_tasks WHERE main_task_id = ?))").run(id, id);
+  db.prepare("DELETE FROM status_change_history WHERE (task_type = 'main' AND task_id = ?) OR (task_type = 'sub' AND task_id IN (SELECT id FROM sub_tasks WHERE main_task_id = ?))").run(id, id);
   db.prepare('DELETE FROM progress_reports WHERE main_task_id = ?').run(id);
   db.prepare('DELETE FROM main_tasks WHERE id = ?').run(id);
   reassignLetters(taskDate);
@@ -687,7 +723,7 @@ export function getTasksForExport(startDate: string, endDate: string) {
 }
 
 export function deleteAllTasks(): void {
-  db.exec('DELETE FROM progress_reports; DELETE FROM sub_tasks; DELETE FROM main_tasks;');
+  db.exec('DELETE FROM progress_reports; DELETE FROM time_segments; DELETE FROM sub_tasks; DELETE FROM main_tasks;');
 }
 
 // ---- Daily records & carry forward ----
@@ -695,6 +731,181 @@ export function deleteAllTasks(): void {
 function localToday(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// ---- 计时（V1.1.0）----
+// 计时段：task_type + task_id 定位任务（与状态历史同一套 ID 体系）；
+// start_time / end_time 为本地时间 'YYYY-MM-DD HH:MM'（精确到分钟），end_time 为空表示进行中。
+
+function localNowMinute(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+const TIME_RE = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
+
+function minutesBetween(startTime: string, endTime: string): number {
+  const s = new Date(startTime.replace(' ', 'T') + ':00').getTime();
+  const e = new Date(endTime.replace(' ', 'T') + ':00').getTime();
+  if (isNaN(s) || isNaN(e)) return 0;
+  return Math.max(0, Math.round((e - s) / 60000));
+}
+
+function getTimeSegment(id: number): any {
+  return db.prepare('SELECT * FROM time_segments WHERE id = ?').get(id);
+}
+
+// 当前正在运行的计时段（全局同时最多一个）
+export function getRunningTimer(): any {
+  const seg = db.prepare('SELECT * FROM time_segments WHERE end_time IS NULL ORDER BY start_time DESC LIMIT 1').get() as any;
+  if (!seg) return null;
+  let taskName = '';
+  if (seg.task_type === 'main') {
+    taskName = (db.prepare('SELECT name FROM main_tasks WHERE id = ?').get(seg.task_id) as any)?.name || '';
+  } else {
+    taskName = (db.prepare('SELECT name FROM sub_tasks WHERE id = ?').get(seg.task_id) as any)?.name || '';
+  }
+  return { ...seg, task_name: taskName };
+}
+
+function finalizeSegment(id: number, endTime: string): any {
+  const seg = db.prepare('SELECT * FROM time_segments WHERE id = ?').get(id) as any;
+  if (!seg || seg.end_time) return seg;
+  const dur = minutesBetween(seg.start_time, endTime);
+  db.prepare('UPDATE time_segments SET end_time = ?, duration = ?, updated_at = ? WHERE id = ?')
+    .run(endTime, dur, now(), id);
+  return getTimeSegment(id);
+}
+
+// 开始计时：同任务已在计时 → alreadyRunning；其他任务在计时 → 先停止再开始新段
+export function startTimer(taskType: TaskType, taskId: number, mode: 'auto' | 'manual', lang: ServerLang = 'zh'): any {
+  let task: any = null;
+  if (taskType === 'main') task = db.prepare('SELECT status FROM main_tasks WHERE id = ?').get(taskId);
+  else task = db.prepare('SELECT status, main_task_id FROM sub_tasks WHERE id = ?').get(taskId);
+  if (!task) throw new Error(te(lang, 'timer.taskNotFound'));
+  if (task.status === '已取消') return { blocked: true, code: 'cancelled' };
+
+  const running = getRunningTimer();
+  if (running) {
+    if (running.task_type === taskType && running.task_id === taskId) {
+      return { alreadyRunning: true, segment: running };
+    }
+    finalizeSegment(running.id, localNowMinute());
+  }
+  const ts = now();
+  const result = db.prepare(`
+    INSERT INTO time_segments (task_id, task_type, start_time, end_time, duration, mode, is_valid, created_at, updated_at)
+    VALUES (?, ?, ?, NULL, NULL, ?, 1, ?, ?)
+  `).run(taskId, taskType, localNowMinute(), mode, ts, ts);
+  return { success: true, segment: getTimeSegment(result.lastInsertRowid as number) };
+}
+
+// 停止当前运行中的计时段
+export function stopCurrentTimer(): any {
+  const running = getRunningTimer();
+  if (!running) return { success: true, segment: null };
+  return { success: true, segment: finalizeSegment(running.id, localNowMinute()) };
+}
+
+// 停止所有运行中的计时段（软件退出时调用）
+export function stopAllRunningTimers(): void {
+  const rows = db.prepare('SELECT id FROM time_segments WHERE end_time IS NULL').all() as any[];
+  for (const r of rows) finalizeSegment(r.id, localNowMinute());
+}
+
+// 启动时清理孤儿段（上次进程被强制终止留下的运行中记录）：
+// 闭合成 0 时长并标记为待确认异常（is_valid = 0）
+export function cleanupOrphanTimers(): void {
+  db.prepare('UPDATE time_segments SET end_time = start_time, duration = 0, is_valid = 0, updated_at = ? WHERE end_time IS NULL')
+    .run(now());
+}
+
+// 计时段手动新增/编辑校验（同一套规则）
+function validateSegment(taskType: TaskType, taskId: number, startTime: string, endTime: string, excludeId: number | null, lang: ServerLang): string | null {
+  if (!TIME_RE.test(startTime || '') || !TIME_RE.test(endTime || '')) return te(lang, 'timer.invalidTime');
+  if (endTime < startTime) return te(lang, 'timer.endBeforeStart');
+  let status = '';
+  if (taskType === 'main') status = ((db.prepare('SELECT status FROM main_tasks WHERE id = ?').get(taskId) as any)?.status) || '';
+  else status = ((db.prepare('SELECT status FROM sub_tasks WHERE id = ?').get(taskId) as any)?.status) || '';
+  if (!status) return te(lang, 'timer.taskNotFound');
+  if (status === '已取消') return te(lang, 'timer.cancelled');
+  const segs = db.prepare('SELECT * FROM time_segments WHERE task_type = ? AND task_id = ?').all(taskType, taskId) as any[];
+  for (const s of segs) {
+    if (excludeId && s.id === excludeId) continue;
+    const sEnd = s.end_time || localNowMinute();
+    if (startTime < sEnd && s.start_time < endTime) return te(lang, 'timer.overlap');
+  }
+  return null;
+}
+
+export function getTimeSegments(taskType: TaskType, taskId: number): any[] {
+  return db.prepare('SELECT * FROM time_segments WHERE task_type = ? AND task_id = ? ORDER BY start_time ASC, id ASC').all(taskType, taskId);
+}
+
+export function addTimeSegment(taskType: TaskType, taskId: number, startTime: string, endTime: string, lang: ServerLang = 'zh'): any {
+  const err = validateSegment(taskType, taskId, startTime, endTime, null, lang);
+  if (err) throw new Error(err);
+  const ts = now();
+  const dur = minutesBetween(startTime, endTime);
+  const result = db.prepare(`
+    INSERT INTO time_segments (task_id, task_type, start_time, end_time, duration, mode, is_valid, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, 'manual', 1, ?, ?)
+  `).run(taskId, taskType, startTime, endTime, dur, ts, ts);
+  return getTimeSegment(result.lastInsertRowid as number);
+}
+
+export function updateTimeSegment(id: number, startTime: string, endTime: string, lang: ServerLang = 'zh'): any {
+  const seg = getTimeSegment(id) as any;
+  if (!seg) throw new Error(te(lang, 'timer.notFound'));
+  if (!seg.end_time) throw new Error(te(lang, 'timer.runningReadonly'));
+  const err = validateSegment(seg.task_type, seg.task_id, startTime, endTime, id, lang);
+  if (err) throw new Error(err);
+  db.prepare('UPDATE time_segments SET start_time = ?, end_time = ?, duration = ?, updated_at = ? WHERE id = ?')
+    .run(startTime, endTime, minutesBetween(startTime, endTime), now(), id);
+  return getTimeSegment(id);
+}
+
+export function deleteTimeSegment(id: number, lang: ServerLang = 'zh'): void {
+  const seg = getTimeSegment(id) as any;
+  if (!seg) throw new Error(te(lang, 'timer.notFound'));
+  if (!seg.end_time) throw new Error(te(lang, 'timer.runningReadonly'));
+  db.prepare('DELETE FROM time_segments WHERE id = ?').run(id);
+}
+
+// 主任务计时汇总：有子任务时由所有子任务合计，无子任务时为主任务自身合计
+export function getTimerSummary(mainTaskId: number): any {
+  const subs = db.prepare('SELECT id, name, status FROM sub_tasks WHERE main_task_id = ? ORDER BY sort_order ASC, created_at ASC').all(mainTaskId) as any[];
+  const hasSubs = subs.length > 0;
+  const mainSegments = getTimeSegments('main', mainTaskId);
+  const subSegments: Record<number, any[]> = {};
+  let subTotal = 0;
+  for (const s of subs) {
+    const segs = getTimeSegments('sub', s.id);
+    subSegments[s.id] = segs;
+    subTotal += segs.reduce((sum: number, x: any) => sum + (x.duration || 0), 0);
+  }
+  const mainOwnTotal = mainSegments.reduce((sum: number, x: any) => sum + (x.duration || 0), 0);
+  const running = getRunningTimer();
+  const runningBelongs = running && (
+    (running.task_type === 'main' && running.task_id === mainTaskId) ||
+    (running.task_type === 'sub' && subs.some((s: any) => s.id === running.task_id))
+  );
+  return {
+    hasSubs,
+    mainSegments,
+    subSegments,
+    mainOwnTotal,
+    subTotal,
+    total: hasSubs ? subTotal : mainOwnTotal,
+    runningSegment: runningBelongs ? running : null,
+  };
+}
+
+// 删除子任务（级联清理其计时记录与状态变更记录）；"标记已取消"不走此路径
+export function deleteSubTaskCascade(subId: number): void {
+  db.prepare("DELETE FROM time_segments WHERE task_type = 'sub' AND task_id = ?").run(subId);
+  db.prepare("DELETE FROM status_change_history WHERE task_type = 'sub' AND task_id = ?").run(subId);
+  db.prepare('DELETE FROM sub_tasks WHERE id = ?').run(subId);
 }
 
 // ---- 自动重复任务（V1.0.1）----

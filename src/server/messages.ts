@@ -20,6 +20,14 @@ const MSGS: Record<string, { zh: string; en: string }> = {
   'page.loadFail': { zh: '界面文件加载失败', en: 'Failed to load the interface.' },
   'next.duplicate': { zh: '该子任务已被其他任务指定为后序，请重新选择', en: 'This sub-task is already the next target of another task. Please choose again.' },
   'next.cycle': { zh: '不能设置循环后序引用', en: 'Circular next-reference is not allowed.' },
+  // 计时（V1.1.0）
+  'timer.taskNotFound': { zh: '任务不存在', en: 'Task not found.' },
+  'timer.invalidTime': { zh: '时间格式错误，请精确到分钟', en: 'Invalid time format. Please use minute precision.' },
+  'timer.endBeforeStart': { zh: '结束时间不能早于开始时间', en: 'End time cannot be earlier than start time.' },
+  'timer.overlap': { zh: '计时段之间不能有时间重叠', en: 'Time segments cannot overlap.' },
+  'timer.cancelled': { zh: '已取消的任务不能新增计时段', en: 'Cannot add time segments to a cancelled task.' },
+  'timer.runningReadonly': { zh: '正在计时的时段不能修改', en: 'A running time segment cannot be modified.' },
+  'timer.notFound': { zh: '计时记录不存在', en: 'Time segment not found.' },
 };
 
 export function getReqLang(req: { headers: Record<string, any> }): ServerLang {

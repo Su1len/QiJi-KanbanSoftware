@@ -14,7 +14,11 @@ import dayjs from 'dayjs';
 
 const { RangePicker } = DatePicker;
 
-const SettingsDialog: React.FC<{ onClose: () => void; initialTab?: string; onOpenTask?: (task: MainTask) => void }> = ({ onClose, initialTab, onOpenTask }) => {
+const SettingsDialog: React.FC<{
+  onClose: () => void; initialTab?: string; onOpenTask?: (task: MainTask) => void;
+  timerMode?: 'auto' | 'manual';
+  onTimerModeChange?: (v: 'auto' | 'manual') => void;
+}> = ({ onClose, initialTab, onOpenTask, timerMode = 'auto', onTimerModeChange }) => {
   const { themeName, setTheme, availableThemes, theme, setDynamicEnabled } = useTheme();
   const { mode, setMode } = useMode();
   const { lang, setLang, t } = useLang();
@@ -171,6 +175,20 @@ const SettingsDialog: React.FC<{ onClose: () => void; initialTab?: string; onOpe
               </div>
             </div>
           )}
+          <div style={{ marginTop: 16 }}>
+            <p style={{ marginBottom: 8, color: 'var(--color-text-secondary)', fontSize: 13 }}>
+              {t('timer.mode')}
+            </p>
+            <Select
+              value={timerMode}
+              onChange={(v) => onTimerModeChange && onTimerModeChange(v)}
+              style={{ width: 200 }}
+              options={[
+                { value: 'auto', label: `${t('timer.mode.auto')}（${t('timer.mode.autoDesc')}）` },
+                { value: 'manual', label: `${t('timer.mode.manual')}（${t('timer.mode.manualDesc')}）` },
+              ]}
+            />
+          </div>
           <div style={{ marginTop: 16 }}>
             <p style={{ marginBottom: 8, color: 'var(--color-text-secondary)', fontSize: 13 }}>
               {t('set.mode')}

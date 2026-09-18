@@ -35,6 +35,14 @@ interface MainViewProps {
   selectedTask: MainTask | null;
   selectedSubTask: SubTask | null;
   currentSubIndex: number;
+  runningTimer: any;
+  timerTarget: { taskType: 'main' | 'sub'; taskId: number } | null;
+  timerMode: 'auto' | 'manual';
+  onStartTimer: () => void;
+  onStopTimer: () => void;
+  onTimerModeChange: (v: 'auto' | 'manual') => void;
+  onTimersChanged: () => void;
+  timerVersion: number;
   onSelectTask: (id: number) => void;
   onSelectTaskOnly: (id: number) => void;
   onSelectTimelineRow?: (mainId: number, subId: number | null) => void;
@@ -139,6 +147,10 @@ const MainView: React.FC<MainViewProps> = (props) => {
         selectedTask={props.selectedTask}
         selectedSubTask={props.selectedSubTask}
         currentSubIndex={props.currentSubIndex}
+        runningTimer={props.runningTimer}
+        timerTarget={props.timerTarget}
+        onStartTimer={props.onStartTimer}
+        onStopTimer={props.onStopTimer}
         onNextSubTask={props.onNextSubTask}
         onCompleteSubTask={props.onCompleteSubTask}
         onCancelSubTask={props.onCancelSubTask}
@@ -160,9 +172,19 @@ const MainView: React.FC<MainViewProps> = (props) => {
         selectedDate={props.selectedDateForForm}
         onSubmit={props.onTaskFormSubmit}
         onCancel={props.onTaskFormCancel}
+        timerVersion={props.timerVersion}
+        onTimersChanged={props.onTimersChanged}
       />
     )}
-    {props.showSettings && <SettingsDialog onClose={props.onSettingsClose} initialTab={props.settingsTab} onOpenTask={props.onOpenSettingsTask} />}
+    {props.showSettings && (
+      <SettingsDialog
+        onClose={props.onSettingsClose}
+        initialTab={props.settingsTab}
+        onOpenTask={props.onOpenSettingsTask}
+        timerMode={props.timerMode}
+        onTimerModeChange={props.onTimerModeChange}
+      />
+    )}
     {props.showAI && (
       <AIDialog
         onClose={props.onAIClose}

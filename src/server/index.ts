@@ -49,6 +49,15 @@ import {
   getCurrentRepeatInstance,
   applyRepeatFrequencyChange,
   stopRepeatTask,
+  getRunningTimer,
+  startTimer,
+  stopCurrentTimer,
+  stopAllRunningTimers,
+  getTimeSegments,
+  addTimeSegment,
+  updateTimeSegment,
+  deleteTimeSegment,
+  getTimerSummary,
 } from './database';
 import { te, getReqLang } from './messages';
 
@@ -300,6 +309,72 @@ app.put('/api/timeline/update', (req, res) => {
     const updated = updateTaskTime(taskType, taskId, startDate, endDate);
     res.json({ success: true, updated });
   } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+// ==================== Time tracking ====================
+
+app.get('/api/timer/running', (_req, res) => {
+  try {
+    res.json(getRunningTimer());
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/timer/start', (req, res) => {
+  try {
+    const taskType = req.body.taskType === 'sub' ? 'sub' : 'main';
+    const taskId = Number(req.body.taskId);
+    const mode = req.body.mode === 'auto' ? 'auto' : 'manual';
+    if (!taskId) return res.status(400).json({ error: te(getReqLang(req), 'param.invalid') });
+    const result = startTimer(taskType, taskId, mode, getReqLang(req));
+    res.json(result);
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+app.post('/api/timer/stop', (_req, res) => {
+  try {
+    res.json(stopCurrentTimer());
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+app.get('/api/timer/segments', (req, res) => {
+  try {
+    const taskType = req.query.taskType === 'sub' ? 'sub' : 'main';
+    const taskId = Number(req.query.taskId);
+    if (!taskId) return res.status(400).json({ error: te(getReqLang(req), 'param.invalid') });
+    res.json(getTimeSegments(taskType, taskId));
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/timer/segments', (req, res) => {
+  try {
+    const taskType = req.body.taskType === 'sub' ? 'sub' : 'main';
+    const taskId = Number(req.body.taskId);
+    if (!taskId) return res.status(400).json({ error: te(getReqLang(req), 'param.invalid') });
+    const seg = addTimeSegment(taskType, taskId, String(req.body.startTime || ''), String(req.body.endTime || ''), getReqLang(req));
+    res.json(seg);
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+app.put('/api/timer/segments/:id', (req, res) => {
+  try {
+    const seg = updateTimeSegment(Number(req.params.id), String(req.body.startTime || ''), String(req.body.endTime || ''), getReqLang(req));
+    res.json(seg);
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+app.delete('/api/timer/segments/:id', (req, res) => {
+  try {
+    deleteTimeSegment(Number(req.params.id), getReqLang(req));
+    res.json({ success: true });
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
+});
+
+app.get('/api/timer/summary', (req, res) => {
+  try {
+    const mainTaskId = Number(req.query.mainTaskId);
+    if (!mainTaskId) return res.status(400).json({ error: te(getReqLang(req), 'param.invalid') });
+    res.json(getTimerSummary(mainTaskId));
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
 // ==================== Status history ====================
@@ -974,6 +1049,8 @@ function startParentMonitor(): void {
         process.kill(parentPid, 0);
       } catch {
         console.log('\n  骐骥看板窗口已关闭，服务器自动退出');
+        // 关闭时停止所有运行中的计时
+        try { stopAllRunningTimers(); } catch (e) { console.error('停止计时失败', e); }
         process.exit(0);
       }
     }

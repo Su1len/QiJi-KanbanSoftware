@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { ConfigProvider, theme, Layout } from 'antd';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { ConfigProvider, theme, Layout, message } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import enUS from 'antd/locale/en_US';
 import dayjs from 'dayjs';
@@ -42,7 +42,7 @@ export interface ProgressReport {
 const AppInner: React.FC = () => {
   const { theme: themeData } = useTheme();
   const { mode, loaded, initialized } = useMode();
-  const { lang } = useLang();
+  const { lang, t } = useLang();
   const [locale] = useState(zhCN);
   const antdLocale = lang === 'en' ? enUS : zhCN;
 
@@ -105,6 +105,79 @@ const AppInner: React.FC = () => {
   const [showRetrospect, setShowRetrospect] = useState(false);
   const [editingTask, setEditingTask] = useState<MainTask | null>(null);
   const [projectRefreshKey, setProjectRefreshKey] = useState(0);
+
+  // ---- 计时（V1.1.0）----
+  const [timerMode, setTimerMode] = useState<'auto' | 'manual'>('auto');
+  const [runningTimer, setRunningTimer] = useState<any>(null);
+  const [timerVersion, setTimerVersion] = useState(0);
+
+  const refreshRunningTimer = useCallback(async () => {
+    try { setRunningTimer(await api.getRunningTimer()); } catch (e) { console.error(e); }
+  }, []);
+
+  useEffect(() => {
+    api.getSetting('timer_mode').then(v => { if (v === 'auto' || v === 'manual') setTimerMode(v); });
+    refreshRunningTimer();
+  }, [refreshRunningTimer]);
+
+  const bumpTimer = useCallback(() => {
+    setTimerVersion(v => v + 1);
+    refreshRunningTimer();
+  }, [refreshRunningTimer]);
+
+  // 当前计时目标：有子任务时按选中的子任务计时；无子任务时对主任务计时
+  const timerTarget = useMemo(() => {
+    if (!selectedTask) return null;
+    const hasSubs = (selectedTask.sub_tasks?.length || 0) > 0;
+    if (hasSubs) {
+      return selectedSubTask ? { taskType: 'sub' as const, taskId: selectedSubTask.id } : null;
+    }
+    return { taskType: 'main' as const, taskId: selectedTask.id };
+  }, [selectedTask, selectedSubTask]);
+
+  const timerTargetKey = timerTarget ? `${timerTarget.taskType}:${timerTarget.taskId}` : '';
+  const runningKey = runningTimer ? `${runningTimer.task_type}:${runningTimer.task_id}` : '';
+  const runningRef = useRef<string>('');
+  runningRef.current = runningKey;
+
+  // 切换目标时停止旧计时；自动模式下自动开始新目标计时
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const cur = runningRef.current;
+      if (cur && cur !== timerTargetKey) {
+        await api.stopTimer().catch(() => {});
+        if (cancelled) return;
+        bumpTimer();
+        return;
+      }
+      if (timerMode === 'auto' && timerTargetKey && cur !== timerTargetKey) {
+        const r = await api.startTimer(timerTarget!.taskType, timerTarget!.taskId, 'auto').catch(() => null);
+        if (cancelled) return;
+        if (r) bumpTimer();
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [timerTargetKey, timerMode, runningKey, bumpTimer]);
+
+  const handleStartTimer = useCallback(async () => {
+    if (!timerTarget) return;
+    try {
+      const r = await api.startTimer(timerTarget.taskType, timerTarget.taskId, timerMode);
+      if (r?.alreadyRunning) { message.info(t('timer.alreadyRunning')); return; }
+      if (r?.blocked) { message.info(t('timer.cancelledTask')); return; }
+      bumpTimer();
+    } catch (e: any) { message.error(e.message); }
+  }, [timerTarget, timerMode, bumpTimer, t]);
+
+  const handleStopTimer = useCallback(async () => {
+    try { await api.stopTimer(); bumpTimer(); } catch (e: any) { message.error(e.message); }
+  }, [bumpTimer]);
+
+  const handleTimerModeChange = useCallback(async (v: 'auto' | 'manual') => {
+    setTimerMode(v);
+    try { await api.setSetting('timer_mode', v); } catch (e) { console.error(e); }
+  }, []);
 
   // Load tasks for selected date
   const loadTasks = useCallback(async () => {
@@ -311,10 +384,14 @@ const AppInner: React.FC = () => {
             onChangeView={handleChangeView}
             mode={mode}
             searchKeyword={searchKeyword} onSearchChange={setSearchKeyword} onSearch={loadTasks}
-            currentMonday={currentMonday} weekDates={weekDates} selectedDate={selectedDate}
+            currentMonday={currentMonday} weekDates={weekDates}             selectedDate={selectedDate}
             selectedWeekday={selectedWeekday} onNavigateWeek={navigateWeek} onNavigateMonth={navigateMonth}
             onWeekdayClick={handleWeekdayClick} allTasks={allTasks} loading={loading}
             selectedTask={selectedTask} selectedSubTask={selectedSubTask} currentSubIndex={currentSubIndex}
+            runningTimer={runningTimer} timerTarget={timerTarget} timerMode={timerMode}
+            onStartTimer={handleStartTimer} onStopTimer={handleStopTimer}
+            onTimerModeChange={handleTimerModeChange} onTimersChanged={bumpTimer}
+            timerVersion={timerVersion}
             onSelectTask={loadTaskDetail} onSelectTaskOnly={handleSelectTaskOnly}
             onSelectTimelineRow={handleSelectTimelineRow}
             onTimelineDataChanged={() => { loadTasks(); setProjectRefreshKey(k => k + 1); }}

@@ -128,6 +128,21 @@ export const api = {
   updateTimelineTask: (data: { taskType: 'main' | 'sub'; taskId: number; startDate: string; endDate: string }) =>
     request<any>('PUT', '/api/timeline/update', data),
 
+  // Time tracking（计时）
+  getRunningTimer: () => request<any>('GET', '/api/timer/running'),
+  startTimer: (taskType: 'main' | 'sub', taskId: number, mode: 'auto' | 'manual') =>
+    request<any>('POST', '/api/timer/start', { taskType, taskId, mode }),
+  stopTimer: () => request<any>('POST', '/api/timer/stop'),
+  getTimeSegments: (taskType: 'main' | 'sub', taskId: number) =>
+    request<any[]>('GET', `/api/timer/segments?taskType=${taskType}&taskId=${taskId}`),
+  addTimeSegment: (taskType: 'main' | 'sub', taskId: number, startTime: string, endTime: string) =>
+    request<any>('POST', '/api/timer/segments', { taskType, taskId, startTime, endTime }),
+  updateTimeSegment: (id: number, startTime: string, endTime: string) =>
+    request<any>('PUT', `/api/timer/segments/${id}`, { startTime, endTime }),
+  deleteTimeSegment: (id: number) => request<any>('DELETE', `/api/timer/segments/${id}`),
+  getTimerSummary: (mainTaskId: number) =>
+    request<any>('GET', `/api/timer/summary?mainTaskId=${mainTaskId}`),
+
   // Repeat tasks
   getRepeatTasks: () => request<any[]>('GET', '/api/repeats'),
   getCurrentRepeatInstance: (id: number) => request<any>('GET', `/api/repeats/${id}/current`),

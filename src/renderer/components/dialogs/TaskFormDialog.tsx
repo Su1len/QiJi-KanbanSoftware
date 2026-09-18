@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Form, Input, Select, Button, Row, Col, InputNumber, Tooltip, AutoComplete, DatePicker, message } from 'antd';
-import { PlusOutlined, DeleteOutlined, QuestionCircleOutlined, DownOutlined, RightOutlined, HighlightOutlined } from '@ant-design/icons';
+import { Modal, Form, Input, Select, Button, Row, Col, InputNumber, Tooltip, AutoComplete, DatePicker, message, Popconfirm, Tag } from 'antd';
+import { PlusOutlined, DeleteOutlined, QuestionCircleOutlined, DownOutlined, RightOutlined, HighlightOutlined, ClockCircleOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { MainTask } from '../../App';
 import type { AppMode } from '../../context/ModeContext';
 import { useLang } from '../../context/LanguageContext';
-import { statusText } from '../../i18n';
+import { statusText, trFmt } from '../../i18n';
 import { buildChainGraph } from '../../utils/graph-utils';
 import { api } from '../../utils/api-client';
 
@@ -93,7 +93,9 @@ const TaskFormDialog: React.FC<{
   onCancel: () => void;
   initialData?: any;
   titleExtra?: string;
-}> = ({ mode, task, selectedDate, onSubmit, onCancel, initialData, titleExtra }) => {
+  timerVersion?: number;
+  onTimersChanged?: () => void;
+}> = ({ mode, task, selectedDate, onSubmit, onCancel, initialData, titleExtra, timerVersion = 0, onTimersChanged }) => {
   const [form] = Form.useForm();
   const { t, lang } = useLang();
   const [subTasks, setSubTasks] = useState<SubTaskFormItem[]>([]);
@@ -102,6 +104,91 @@ const TaskFormDialog: React.FC<{
   const [hlLoading, setHlLoading] = useState(false);
   const [hlResult, setHlResult] = useState<{ highlights: any[]; follow_up_questions: string[] } | null>(null);
   const [hlMarks, setHlMarks] = useState<Record<string, HighlightMark>>({});
+  // 计时状态
+  const [timerSummary, setTimerSummary] = useState<any>(null);
+  const [segModal, setSegModal] = useState<{ open: boolean; mode: 'add' | 'edit'; taskType: 'main' | 'sub'; taskId: number; segId?: number; start: dayjs.Dayjs | null; end: dayjs.Dayjs | null } | null>(null);
+
+  const loadTimerSummary = React.useCallback(async () => {
+    if (!task) { setTimerSummary(null); return; }
+    try { setTimerSummary(await api.getTimerSummary(task.id)); } catch (e) { console.error(e); }
+  }, [task]);
+
+  useEffect(() => { loadTimerSummary(); }, [loadTimerSummary, timerVersion]);
+
+  const fmtDuration = (minutes: number): string => {
+    const m = Math.max(0, Math.round(minutes || 0));
+    const h = Math.floor(m / 60);
+    const mm = m % 60;
+    if (h > 0) return trFmt('timer.hoursMinutes', lang, { h, m: mm });
+    return trFmt('timer.minutes', lang, { n: mm });
+  };
+
+  const openAddSegment = (taskType: 'main' | 'sub', taskId: number) => {
+    setSegModal({ open: true, mode: 'add', taskType, taskId, start: null, end: null });
+  };
+  const openEditSegment = (seg: any) => {
+    setSegModal({
+      open: true, mode: 'edit', taskType: seg.task_type, taskId: seg.task_id, segId: seg.id,
+      start: dayjs(seg.start_time, 'YYYY-MM-DD HH:mm'),
+      end: seg.end_time ? dayjs(seg.end_time, 'YYYY-MM-DD HH:mm') : null,
+    });
+  };
+  const handleSegSubmit = async () => {
+    if (!segModal) return;
+    const start = segModal.start ? segModal.start.format('YYYY-MM-DD HH:mm') : '';
+    const end = segModal.end ? segModal.end.format('YYYY-MM-DD HH:mm') : '';
+    if (!start || !end) { message.warning(t('timer.startTime') + ' / ' + t('timer.endTime')); return; }
+    try {
+      if (segModal.mode === 'add') {
+        await api.addTimeSegment(segModal.taskType, segModal.taskId, start, end);
+      } else {
+        await api.updateTimeSegment(segModal.segId!, start, end);
+      }
+      setSegModal(null);
+      if (onTimersChanged) onTimersChanged();
+      await loadTimerSummary();
+    } catch (e: any) { message.error(e.message); }
+  };
+  const handleSegDelete = async (segId: number) => {
+    try {
+      await api.deleteTimeSegment(segId);
+      if (onTimersChanged) onTimersChanged();
+      await loadTimerSummary();
+    } catch (e: any) { message.error(e.message); }
+  };
+  const renderSegments = (segs: any[]) => (
+    <div>
+      {segs.length === 0 && (
+        <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 4 }}>{t('timer.noSegments')}</div>
+      )}
+      {segs.map((s: any) => {
+        const running = !s.end_time;
+        return (
+          <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, marginBottom: 4 }}>
+            <span style={{ color: 'var(--color-text-primary)' }}>
+              {s.start_time} ~ {s.end_time || '...'}
+            </span>
+            {running ? (
+              <Tag color="processing" style={{ margin: 0 }}>{t('timer.running')}</Tag>
+            ) : (
+              <>
+                <span style={{ color: 'var(--color-text-secondary)' }}>{fmtDuration(s.duration || 0)}</span>
+                <Button type="link" size="small" style={{ padding: 0, height: 18 }} onClick={() => openEditSegment(s)}>
+                  {t('common.edit')}
+                </Button>
+                <Popconfirm title={t('common.delete') + '?'} onConfirm={() => handleSegDelete(s.id)}
+                  okText={t('confirm.deleteOk')} cancelText={t('common.cancel')}>
+                  <Button type="link" size="small" danger style={{ padding: 0, height: 18 }}>
+                    {t('common.delete')}
+                  </Button>
+                </Popconfirm>
+              </>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 
   const statusOptions = STATUS_VALUES.map(v => ({ value: v, label: statusText(v, lang) }));
 
@@ -170,13 +257,37 @@ const TaskFormDialog: React.FC<{
         if (cnt >= 50) { message.warning(lang === 'en' ? 'This project has reached the limit of 50 main tasks.' : '此项目内的主任务数量已达上限（50个），请考虑调整任务或新建项目'); return; }
       } catch {}
     }
-    onSubmit({
-      ...values,
-      start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
-      end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
-      sub_tasks: subTasks.filter(s => s.name.trim()),
-      task_date: selectedDate,
-    });
+    const newSubs = subTasks.filter(s => s.name.trim());
+    const doSubmit = () => {
+      onSubmit({
+        ...values,
+        start_date: values.start_date ? values.start_date.format('YYYY-MM-DD') : null,
+        end_date: values.end_date ? values.end_date.format('YYYY-MM-DD') : null,
+        sub_tasks: newSubs,
+        task_date: selectedDate,
+      });
+    };
+    // 计时归属弹框：
+    // 无子任务的主任务第一次新增子任务 → 主任务自身计时记录将被清除
+    const existingSubCount = task?.sub_tasks?.length || 0;
+    if (task && existingSubCount === 0 && newSubs.length > 0 && (timerSummary?.mainSegments?.length || 0) > 0) {
+      Modal.confirm({
+        title: t('timer.addFirstSubConfirm'),
+        okText: t('common.save'), cancelText: t('common.cancel'),
+        onOk: doSubmit,
+      });
+      return;
+    }
+    // 有子任务的主任务删除最后一个子任务 → 子任务计时记录将被清除，主任务从零开始
+    if (task && existingSubCount > 0 && newSubs.length === 0) {
+      Modal.confirm({
+        title: t('timer.removeLastSubConfirm'),
+        okText: t('common.save'), cancelText: t('common.cancel'),
+        onOk: doSubmit,
+      });
+      return;
+    }
+    doSubmit();
   };
 
   const addSubTask = () => setSubTasks([...subTasks, { name: '', nextIndex: null }]);
@@ -339,6 +450,27 @@ const TaskFormDialog: React.FC<{
           </HLField>
         </Form.Item>
 
+        {/* 主任务计时记录（有子任务时由子任务汇总，不单独计时） */}
+        {task && timerSummary && (
+          <div style={{ marginBottom: 12, padding: '10px 12px', background: 'var(--color-bg-hover)', borderRadius: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+              <ClockCircleOutlined style={{ color: 'var(--color-text-secondary)' }} />
+              <span style={{ fontSize: 13, fontWeight: 500 }}>{t('timer.segments')}</span>
+              <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                {t('timer.total')}：{fmtDuration(timerSummary.total)}
+                {timerSummary.hasSubs ? ` ${t('timer.fromSubs')}` : ''}
+              </span>
+              {!timerSummary.hasSubs && (
+                <Button type="dashed" size="small" icon={<PlusOutlined />}
+                  onClick={() => openAddSegment('main', task.id)}>
+                  {t('timer.addSegment')}
+                </Button>
+              )}
+            </div>
+            {!timerSummary.hasSubs && renderSegments(timerSummary.mainSegments || [])}
+          </div>
+        )}
+
         {mode === 'full' && (
           <Row gutter={16}>
             {THEMRPR_FIELDS.map(f => (
@@ -475,6 +607,21 @@ const TaskFormDialog: React.FC<{
                         </div>
                       </Col>
                     </Row>
+                    {/* 子任务计时记录 */}
+                    {st.id && (
+                      <div style={{ marginTop: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+                            {t('timer.segments')}：{fmtDuration((timerSummary?.subSegments?.[st.id] || []).reduce((sum: number, x: any) => sum + (x.duration || 0), 0))}
+                          </span>
+                          <Button type="dashed" size="small" icon={<PlusOutlined />}
+                            onClick={() => openAddSegment('sub', st.id!)}>
+                            {t('timer.addSegment')}
+                          </Button>
+                        </div>
+                        {renderSegments(timerSummary?.subSegments?.[st.id] || [])}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -499,6 +646,43 @@ const TaskFormDialog: React.FC<{
           </>
         )}
       </Form>
+
+      {/* 计时段新增/编辑 */}
+      {segModal && segModal.open && (
+        <Modal
+          open
+          title={segModal.mode === 'add' ? t('timer.addSegment') : t('timer.editSegment')}
+          onCancel={() => setSegModal(null)}
+          onOk={handleSegSubmit}
+          okText={t('common.save')}
+          cancelText={t('common.cancel')}
+          width={420}
+          zIndex={2000}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 8 }}>
+            <div>
+              <div style={{ fontSize: 12, marginBottom: 4, color: 'var(--color-text-secondary)' }}>{t('timer.startTime')}</div>
+              <DatePicker
+                showTime={{ format: 'HH:mm' }}
+                format="YYYY-MM-DD HH:mm"
+                style={{ width: '100%' }}
+                value={segModal.start}
+                onChange={(v) => setSegModal({ ...segModal, start: v })}
+              />
+            </div>
+            <div>
+              <div style={{ fontSize: 12, marginBottom: 4, color: 'var(--color-text-secondary)' }}>{t('timer.endTime')}</div>
+              <DatePicker
+                showTime={{ format: 'HH:mm' }}
+                format="YYYY-MM-DD HH:mm"
+                style={{ width: '100%' }}
+                value={segModal.end}
+                onChange={(v) => setSegModal({ ...segModal, end: v })}
+              />
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* AI 划重点结果（只读参考层） */}
       {hlResult && (

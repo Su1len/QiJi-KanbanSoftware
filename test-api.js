@@ -1101,6 +1101,161 @@ async function runTests() {
     record('动态背景异常路径返回 404（触发降级）', ok,
       `status=${r.status}`);
   }
+
+  // ── 用例 67-77：计时（V1.1.0） ──
+  let timerMainA = null, timerMainB = null;
+  {
+    // 计时段表迁移 + 无子任务主任务开始/停止计时
+    const { body: mt } = await post('/api/main-tasks', { name: '计时-无子任务', content: 'x', priority: 5, status: '进行中', task_date: TEST_DATE, sub_tasks: [] });
+    timerMainA = mt.id;
+    const r1 = await post('/api/timer/start', { taskType: 'main', taskId: mt.id, mode: 'manual' });
+    const running = await get('/api/timer/running');
+    const runOk = r1.status === 200 && r1.body.success === true
+      && running.body && running.body.task_id === mt.id && running.body.task_type === 'main' && running.body.end_time === null;
+    const r2 = await post('/api/timer/stop');
+    const st = r2.body.segment;
+    const segOk = r2.status === 200 && !!st && !!st.end_time && typeof st.duration === 'number' && st.mode === 'manual';
+    const segs = await get(`/api/timer/segments?taskType=main&taskId=${mt.id}`);
+    const ok = runOk && segOk && Array.isArray(segs.body) && segs.body.length === 1;
+    record('计时段表迁移 + 主任务开始/停止计时', ok,
+      `run=${runOk}, stop=${segOk}, segs=${(segs.body || []).length}, dur=${st && st.duration}`);
+  }
+  {
+    // 同一任务重复开始 → alreadyRunning（前端提示“该任务正在计时中”）
+    await post('/api/timer/start', { taskType: 'main', taskId: timerMainA, mode: 'manual' });
+    const r = await post('/api/timer/start', { taskType: 'main', taskId: timerMainA, mode: 'manual' });
+    await post('/api/timer/stop');
+    const ok = r.status === 200 && r.body && r.body.alreadyRunning === true;
+    record('同一任务重复开始计时 → alreadyRunning', ok, JSON.stringify(r.body).slice(0, 100));
+  }
+  {
+    // 切换任务：A 运行中开始 B → A 自动停止、B 运行中
+    const { body: mb } = await post('/api/main-tasks', { name: '计时-切换B', content: 'x', priority: 5, status: '进行中', task_date: TEST_DATE, sub_tasks: [] });
+    timerMainB = mb.id;
+    await post('/api/timer/start', { taskType: 'main', taskId: timerMainA, mode: 'manual' });
+    const r = await post('/api/timer/start', { taskType: 'main', taskId: timerMainB, mode: 'manual' });
+    const segsA = await get(`/api/timer/segments?taskType=main&taskId=${timerMainA}`);
+    const lastA = segsA.body[segsA.body.length - 1];
+    const stoppedA = !!lastA && lastA.end_time !== null;
+    const running = await get('/api/timer/running');
+    const ok = r.body.success === true && stoppedA && running.body.task_id === timerMainB;
+    await post('/api/timer/stop');
+    record('切换任务时自动停止旧计时并开始新计时', ok, `stoppedA=${stoppedA}`);
+  }
+  {
+    // 自动/手动模式记录在计时段上
+    const rAuto = await post('/api/timer/start', { taskType: 'main', taskId: timerMainA, mode: 'auto' });
+    await post('/api/timer/stop');
+    const rManual = await post('/api/timer/start', { taskType: 'main', taskId: timerMainA, mode: 'manual' });
+    const rStop = await post('/api/timer/stop');
+    const ok = rAuto.body.segment.mode === 'auto' && rManual.body.segment.mode === 'manual';
+    record('计时模式记录（auto/manual）', ok,
+      `auto=${rAuto.body.segment.mode}, manual=${rManual.body.segment.mode}`);
+  }
+  {
+    // 归属：带 2 子任务的主任务 → 汇总 = 子段合计（主任务自身不单独计时）
+    const { body: ms } = await post('/api/main-tasks', { name: '计时-归属', content: 'x', priority: 5, status: '进行中', task_date: TEST_DATE, sub_tasks: [{ name: '子甲' }, { name: '子乙' }] });
+    const ws = await get(`/api/main-tasks/${ms.id}/with-subs`);
+    const s1 = ws.body.sub_tasks[0], s2 = ws.body.sub_tasks[1];
+    await post('/api/timer/segments', { taskType: 'sub', taskId: s1.id, startTime: '2026-01-01 09:00', endTime: '2026-01-01 09:30' });
+    await post('/api/timer/segments', { taskType: 'sub', taskId: s2.id, startTime: '2026-01-01 10:00', endTime: '2026-01-01 10:45' });
+    const sum = await get(`/api/timer/summary?mainTaskId=${ms.id}`);
+    const ok = sum.body.hasSubs === true && sum.body.total === 75 && sum.body.subTotal === 75;
+    record('计时归属（有子任务时由子任务汇总）', ok, `total=${sum.body.total}, subTotal=${sum.body.subTotal}`);
+  }
+  {
+    // 无子任务主任务：汇总 = 主任务自身段合计
+    await post('/api/timer/segments', { taskType: 'main', taskId: timerMainA, startTime: '2026-01-08 09:00', endTime: '2026-01-08 09:30' });
+    const sum = await get(`/api/timer/summary?mainTaskId=${timerMainA}`);
+    const ok = sum.body.hasSubs === false && sum.body.total === sum.body.mainOwnTotal && sum.body.total >= 30;
+    record('计时归属（无子任务时主任务自身合计）', ok, `total=${sum.body.total}`);
+  }
+  {
+    // 无子任务主任务新增第一个子任务 → 主任务自身计时段被清除
+    const before = await get(`/api/timer/summary?mainTaskId=${timerMainA}`);
+    await put(`/api/main-tasks/${timerMainA}`, { sub_tasks: [{ name: '新增子任务' }] });
+    const after = await get(`/api/timer/summary?mainTaskId=${timerMainA}`);
+    const ok = before.body.mainSegments.length > 0 && after.body.hasSubs === true && after.body.mainSegments.length === 0;
+    record('新增第一个子任务清除主任务计时', ok,
+      `before=${before.body.mainSegments.length}, after=${after.body.mainSegments.length}`);
+  }
+  {
+    // 删除最后一个子任务 → 子任务行、计时记录、状态变更历史一并清除
+    const ws = await get(`/api/main-tasks/${timerMainA}/with-subs`);
+    const subId = ws.body.sub_tasks[0].id;
+    await post('/api/timer/segments', { taskType: 'sub', taskId: subId, startTime: '2026-01-02 09:00', endTime: '2026-01-02 09:20' });
+    const histBefore = await get(`/api/status-history?taskType=sub&taskId=${subId}`);
+    await put(`/api/main-tasks/${timerMainA}`, { sub_tasks: [] });
+    const segsAfter = await get(`/api/timer/segments?taskType=sub&taskId=${subId}`);
+    const histAfter = await get(`/api/status-history?taskType=sub&taskId=${subId}`);
+    const wsAfter = await get(`/api/main-tasks/${timerMainA}/with-subs`);
+    const ok = segsAfter.body.length === 0 && histAfter.body.length === 0
+      && wsAfter.body.sub_tasks.length === 0 && histBefore.body.length > 0;
+    record('删除子任务清理计时与状态历史', ok,
+      `segs=${segsAfter.body.length}, hist=${histAfter.body.length}, subs=${wsAfter.body.sub_tasks.length}`);
+  }
+  {
+    // 手动新增校验：结束早于开始 / 已取消任务不能新增
+    const r1 = await post('/api/timer/segments', { taskType: 'main', taskId: timerMainA, startTime: '2026-01-03 10:00', endTime: '2026-01-03 09:00' });
+    const { body: mc } = await post('/api/main-tasks', { name: '计时-已取消', content: 'x', priority: 5, status: '进行中', task_date: TEST_DATE, sub_tasks: [] });
+    await put(`/api/main-tasks/${mc.id}`, { status: '已取消' });
+    const r2 = await post('/api/timer/segments', { taskType: 'main', taskId: mc.id, startTime: '2026-01-03 10:00', endTime: '2026-01-03 11:00' });
+    const ok = r1.status === 400 && r2.status === 400;
+    record('手动新增计时校验（时间倒置/已取消任务）', ok,
+      `r1=${r1.status}(${r1.body.error}), r2=${r2.status}(${r2.body.error})`);
+  }
+  {
+    // 手动新增/编辑：重叠拒绝、时长更新、运行中时段只读
+    const r1 = await post('/api/timer/segments', { taskType: 'main', taskId: timerMainB, startTime: '2026-01-04 09:00', endTime: '2026-01-04 10:00' });
+    const segId = r1.body.id;
+    const r2 = await post('/api/timer/segments', { taskType: 'main', taskId: timerMainB, startTime: '2026-01-04 09:30', endTime: '2026-01-04 10:30' });
+    const r3 = await put(`/api/timer/segments/${segId}`, { startTime: '2026-01-04 09:00', endTime: '2026-01-04 11:00' });
+    const durOk = r3.body.duration === 120;
+    const r4 = await post('/api/timer/segments', { taskType: 'main', taskId: timerMainB, startTime: '2026-01-04 11:30', endTime: '2026-01-04 12:00' });
+    const r5 = await put(`/api/timer/segments/${r4.body.id}`, { startTime: '2026-01-04 10:30', endTime: '2026-01-04 11:00' });
+    await post('/api/timer/start', { taskType: 'main', taskId: timerMainB, mode: 'manual' });
+    const runSeg = (await get('/api/timer/running')).body;
+    const r6 = await put(`/api/timer/segments/${runSeg.id}`, { startTime: '2026-01-04 09:00', endTime: '2026-01-04 09:10' });
+    await post('/api/timer/stop');
+    const ok = r1.status === 200 && r2.status === 400 && durOk && r5.status === 400 && r6.status === 400;
+    record('计时手动新增/编辑/重叠/只读校验', ok,
+      `add=${r1.status}, overlap=${r2.status}, dur=${r3.body.duration}, editOverlap=${r5.status}, runningRO=${r6.status}`);
+  }
+  {
+    // 标记已取消（状态变更）不删除计时记录，但不能新增；与“删除子任务”区分
+    const { body: ms } = await post('/api/main-tasks', { name: '计时-取消子任务', content: 'x', priority: 5, status: '进行中', task_date: TEST_DATE, sub_tasks: [{ name: '待取消子' }] });
+    const ws = await get(`/api/main-tasks/${ms.id}/with-subs`);
+    const subId = ws.body.sub_tasks[0].id;
+    await post('/api/timer/segments', { taskType: 'sub', taskId: subId, startTime: '2026-01-05 09:00', endTime: '2026-01-05 09:30' });
+    await put(`/api/sub-tasks/${subId}`, { status: '已取消' });
+    const segs = await get(`/api/timer/segments?taskType=sub&taskId=${subId}`);
+    const hist = await get(`/api/status-history?taskType=sub&taskId=${subId}`);
+    const r = await post('/api/timer/segments', { taskType: 'sub', taskId: subId, startTime: '2026-01-05 10:00', endTime: '2026-01-05 10:30' });
+    const ok = segs.body.length === 1 && hist.body.length >= 1 && r.status === 400;
+    record('标记已取消不删记录但不能新增计时', ok,
+      `segs=${segs.body.length}, newAdd=${r.status}`);
+  }
+  {
+    // 汇总实时刷新：新增段后 total 立即变化
+    const before = await get(`/api/timer/summary?mainTaskId=${timerMainB}`);
+    await post('/api/timer/segments', { taskType: 'main', taskId: timerMainB, startTime: '2026-01-06 09:00', endTime: '2026-01-06 09:30' });
+    const after = await get(`/api/timer/summary?mainTaskId=${timerMainB}`);
+    const ok = after.body.total === before.body.total + 30;
+    record('计时汇总实时刷新（新增后 total 变化）', ok,
+      `before=${before.body.total}, after=${after.body.total}`);
+  }
+  {
+    // 任务 ID 唯一性（步骤 2 验证）：同名任务 ID 互不相同且稳定
+    const { body: t1 } = await post('/api/main-tasks', { name: '同名校验', content: 'x', priority: 5, status: '进行中', task_date: TEST_DATE, sub_tasks: [] });
+    const { body: t2 } = await post('/api/main-tasks', { name: '同名校验', content: 'x', priority: 5, status: '进行中', task_date: TEST_DATE, sub_tasks: [] });
+    const { body: s1 } = await post('/api/sub-tasks', { main_task_id: t1.id, name: '同名子' });
+    const { body: s2 } = await post('/api/sub-tasks', { main_task_id: t2.id, name: '同名子' });
+    await post('/api/timer/segments', { taskType: 'main', taskId: t1.id, startTime: '2026-01-07 09:00', endTime: '2026-01-07 09:10' });
+    const segs1 = await get(`/api/timer/segments?taskType=main&taskId=${t1.id}`);
+    const ok = t1.id !== t2.id && s1.id !== s2.id && segs1.body.length === 1 && segs1.body[0].task_id === t1.id;
+    record('任务 ID 全局唯一稳定（同名任务/子任务）', ok,
+      `mains=${t1.id},${t2.id}; subs=${s1.id},${s2.id}`);
+  }
 }
 
 // ─── 主流程 ────────────────────────────────────────────
