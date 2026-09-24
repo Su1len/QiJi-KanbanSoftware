@@ -158,7 +158,20 @@ export function initDatabase(): void {
   try { db.exec('ALTER TABLE main_tasks ADD COLUMN repeat_base_date TEXT'); } catch(e) {}
   db.exec('CREATE INDEX IF NOT EXISTS idx_main_tasks_repeat ON main_tasks(repeat_frequency);');
 
-  // 启动清理：上次进程被强制终止留下的运行中计时段（闭合成 0 时长、标记待确认异常）
+  // 全局唯一任务ID序列表（V1.1.0）：职责单一——只负责发放全局唯一任务ID。
+  // 主任务与子任务创建时都从该表取号，保证两者 ID 全局不撞号。
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS task_id_sequence (
+      id      INTEGER PRIMARY KEY CHECK (id = 1),
+      next_id INTEGER NOT NULL
+    );
+    INSERT OR IGNORE INTO task_id_sequence (id, next_id) VALUES (1, 1);
+  `);
+
+  // 一次性迁移：老库的主/子任务 ID 改为全局唯一（执行后写 settings 标记，幂等）
+  migrateToGlobalTaskIds();
+
+  // 启动清理：上次进程被强制终止留下的运行中计时段（标记待确认，保留开始/结束时间原貌）
   cleanupOrphanTimers();
 }
 
@@ -330,11 +343,12 @@ export function createMainTask(data: any, lang: ServerLang = 'zh') {
   const letter = getNextLetter(taskDate);
   const timestamp = now();
   const doCreate = db.transaction(() => {
-    const result = db.prepare(`
-      INSERT INTO main_tasks (letter, name, content, status, purpose, resources, duration, effect, hints, approach, relevants, priority, project_name, start_date, end_date, repeat_frequency, repeat_base_date, created_at, updated_at, task_date)
-      VALUES (@letter, @name, @content, @status, @purpose, @resources, @duration, @effect, @hints, @approach, @relevants, @priority, @project_name, @start_date, @end_date, @repeat_frequency, @repeat_base_date, @created_at, @updated_at, @task_date)
+    const taskId = allocateTaskId();
+    db.prepare(`
+      INSERT INTO main_tasks (id, letter, name, content, status, purpose, resources, duration, effect, hints, approach, relevants, priority, project_name, start_date, end_date, repeat_frequency, repeat_base_date, created_at, updated_at, task_date)
+      VALUES (@id, @letter, @name, @content, @status, @purpose, @resources, @duration, @effect, @hints, @approach, @relevants, @priority, @project_name, @start_date, @end_date, @repeat_frequency, @repeat_base_date, @created_at, @updated_at, @task_date)
     `).run({
-      letter, name: data.name, content: data.content || '', status: '进行中',
+      id: taskId, letter, name: data.name, content: data.content || '', status: '进行中',
       purpose: data.purpose || '', resources: data.resources || '', duration: data.duration || '',
       effect: data.effect || '', hints: data.hints || '', approach: data.approach || '',
       relevants: data.relevants || '', priority: data.priority || 0,
@@ -344,7 +358,7 @@ export function createMainTask(data: any, lang: ServerLang = 'zh') {
       repeat_base_date: data.repeat_base_date || null,
       created_at: timestamp, updated_at: timestamp, task_date: taskDate,
     });
-    const mainTaskId = result.lastInsertRowid as number;
+    const mainTaskId = taskId;
     // 初始状态历史（none → 进行中）
     recordInitialStatus(mainTaskId, 'main', '进行中', timestamp);
     // Create daily record for the task's date
@@ -522,10 +536,12 @@ export function deleteMainTask(id: number): void {
 export function createSubTask(data: any) {
   const timestamp = now();
   const status = data.status || '进行中';
-  const result = db.prepare(`
-    INSERT INTO sub_tasks (main_task_id, name, content, status, sort_order, purpose, resources, duration, effect, hints, approach, relevants, priority, start_date, end_date, created_at, updated_at)
-    VALUES (@main_task_id, @name, @content, @status, @sort_order, @purpose, @resources, @duration, @effect, @hints, @approach, @relevants, @priority, @start_date, @end_date, @created_at, @updated_at)
+  const subTaskId = allocateTaskId();
+  db.prepare(`
+    INSERT INTO sub_tasks (id, main_task_id, name, content, status, sort_order, purpose, resources, duration, effect, hints, approach, relevants, priority, start_date, end_date, created_at, updated_at)
+    VALUES (@id, @main_task_id, @name, @content, @status, @sort_order, @purpose, @resources, @duration, @effect, @hints, @approach, @relevants, @priority, @start_date, @end_date, @created_at, @updated_at)
   `).run({
+    id: subTaskId,
     main_task_id: data.main_task_id, name: data.name, content: data.content || '',
     status, sort_order: data.sort_order || 0,
     purpose: data.purpose ?? null, resources: data.resources ?? null,
@@ -536,8 +552,8 @@ export function createSubTask(data: any) {
     created_at: timestamp, updated_at: timestamp,
   });
   // 初始状态历史（none → 初始状态）
-  recordInitialStatus(result.lastInsertRowid as number, 'sub', status, timestamp);
-  return db.prepare('SELECT * FROM sub_tasks WHERE id = ?').get(result.lastInsertRowid);
+  recordInitialStatus(subTaskId, 'sub', status, timestamp);
+  return db.prepare('SELECT * FROM sub_tasks WHERE id = ?').get(subTaskId);
 }
 
 export function updateSubTask(id: number, data: any, lang: ServerLang = 'zh') {
@@ -733,6 +749,133 @@ function localToday(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// ---- 全局唯一任务ID体系（V1.1.0）----
+// 主任务与子任务共用 task_id_sequence 发号，ID 全局唯一；
+// task_type 保留为语义与查询效率的辅助字段。
+
+const TASK_ID_MIGRATION_KEY = 'task_id_migration_v1';
+
+function allocateTaskId(): number {
+  const row = db.prepare('SELECT next_id FROM task_id_sequence WHERE id = 1').get() as any;
+  const id = row ? Number(row.next_id) : 1;
+  db.prepare('UPDATE task_id_sequence SET next_id = ? WHERE id = 1').run(id + 1);
+  return id;
+}
+
+// 一次性迁移：把旧库中可能跨表撞号的主/子任务 ID 重新分配为全局唯一，
+// 并同步更新所有引用表（daily_records / progress_reports / retrospectives /
+// sub_tasks.main_task_id / sub_tasks.next_sub_task_id / time_segments / status_change_history）。
+// 迁移前备份数据库文件；迁移后做一致性校验。执行完写入 settings 标记，幂等。
+function migrateToGlobalTaskIds(): void {
+  const done = db.prepare('SELECT value FROM settings WHERE key = ?').get(TASK_ID_MIGRATION_KEY) as any;
+  if (done && done.value === 'done') return;
+
+  const mainCount = (db.prepare('SELECT COUNT(*) AS c FROM main_tasks').get() as any).c as number;
+  const subCount = (db.prepare('SELECT COUNT(*) AS c FROM sub_tasks').get() as any).c as number;
+  const historyCount = (db.prepare('SELECT COUNT(*) AS c FROM status_change_history').get() as any).c as number;
+  const segCount = (db.prepare('SELECT COUNT(*) AS c FROM time_segments').get() as any).c as number;
+
+  // 空库无需迁移：重置序号、记录零统计并标记
+  if (mainCount === 0 && subCount === 0) {
+    db.prepare('UPDATE task_id_sequence SET next_id = 1 WHERE id = 1').run();
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(TASK_ID_MIGRATION_KEY, 'done');
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+      .run('task_id_migration_stats', JSON.stringify({ main: 0, sub: 0, history: 0, segments: 0, orphans: 0, backup: null }));
+    return;
+  }
+
+  // 迁移前备份（在线备份 API，WAL 下安全）
+  const backupPath = path.join(DB_DIR, `kanban.db.premigration-${Date.now()}.bak`);
+  try {
+    db.pragma('wal_checkpoint(TRUNCATE)');
+    fs.copyFileSync(DB_PATH, backupPath);
+  } catch (e: any) {
+    console.error('[迁移] 备份数据库失败，中止迁移:', e?.message);
+    throw e;
+  }
+
+  const OFFSET_MAIN = 10000000;
+  const OFFSET_SUB = 20000000;
+  const stats = { main: mainCount, sub: subCount, history: historyCount, segments: segCount, orphans: 0, backup: path.basename(backupPath) };
+
+  const run = db.transaction(() => {
+    // 延迟外键检查到提交时（届时引用已全部同步更新）
+    db.pragma('defer_foreign_keys = ON');
+
+    // 1) 临时偏移，避免更新主键时与现有值冲突
+    db.prepare(`UPDATE main_tasks SET id = id + ${OFFSET_MAIN}`).run();
+    db.prepare(`UPDATE daily_records SET main_task_id = main_task_id + ${OFFSET_MAIN}`).run();
+    db.prepare(`UPDATE progress_reports SET main_task_id = main_task_id + ${OFFSET_MAIN}`).run();
+    db.prepare(`UPDATE retrospectives SET main_task_id = main_task_id + ${OFFSET_MAIN}`).run();
+    db.prepare(`UPDATE sub_tasks SET main_task_id = main_task_id + ${OFFSET_MAIN}`).run();
+    db.prepare(`UPDATE time_segments SET task_id = task_id + ${OFFSET_MAIN} WHERE task_type = 'main'`).run();
+    db.prepare(`UPDATE status_change_history SET task_id = task_id + ${OFFSET_MAIN} WHERE task_type = 'main'`).run();
+    db.prepare(`UPDATE sub_tasks SET id = id + ${OFFSET_SUB}`).run();
+    db.prepare(`UPDATE sub_tasks SET next_sub_task_id = next_sub_task_id + ${OFFSET_SUB} WHERE next_sub_task_id IS NOT NULL`).run();
+    db.prepare(`UPDATE progress_reports SET sub_task_id = sub_task_id + ${OFFSET_SUB} WHERE sub_task_id > 0`).run();
+    db.prepare(`UPDATE time_segments SET task_id = task_id + ${OFFSET_SUB} WHERE task_type = 'sub'`).run();
+    db.prepare(`UPDATE status_change_history SET task_id = task_id + ${OFFSET_SUB} WHERE task_type = 'sub'`).run();
+
+    // 2) 依次发放全局唯一 ID 并同步所有引用
+    const updMain = db.prepare('UPDATE main_tasks SET id = ? WHERE id = ?');
+    const updDaily = db.prepare('UPDATE daily_records SET main_task_id = ? WHERE main_task_id = ?');
+    const updProgressMain = db.prepare('UPDATE progress_reports SET main_task_id = ? WHERE main_task_id = ?');
+    const updRetro = db.prepare('UPDATE retrospectives SET main_task_id = ? WHERE main_task_id = ?');
+    const updSubMain = db.prepare('UPDATE sub_tasks SET main_task_id = ? WHERE main_task_id = ?');
+    const updSegMain = db.prepare("UPDATE time_segments SET task_id = ? WHERE task_type = 'main' AND task_id = ?");
+    const updHistMain = db.prepare("UPDATE status_change_history SET task_id = ? WHERE task_type = 'main' AND task_id = ?");
+    const mains = db.prepare('SELECT id FROM main_tasks ORDER BY id ASC').all() as any[];
+    for (const m of mains) {
+      const newId = allocateTaskId();
+      updMain.run(newId, m.id);
+      updDaily.run(newId, m.id);
+      updProgressMain.run(newId, m.id);
+      updRetro.run(newId, m.id);
+      updSubMain.run(newId, m.id);
+      updSegMain.run(newId, m.id);
+      updHistMain.run(newId, m.id);
+    }
+
+    const updSub = db.prepare('UPDATE sub_tasks SET id = ? WHERE id = ?');
+    const updNext = db.prepare('UPDATE sub_tasks SET next_sub_task_id = ? WHERE next_sub_task_id = ?');
+    const updProgressSub = db.prepare('UPDATE progress_reports SET sub_task_id = ? WHERE sub_task_id = ?');
+    const updSegSub = db.prepare("UPDATE time_segments SET task_id = ? WHERE task_type = 'sub' AND task_id = ?");
+    const updHistSub = db.prepare("UPDATE status_change_history SET task_id = ? WHERE task_type = 'sub' AND task_id = ?");
+    const subs = db.prepare('SELECT id FROM sub_tasks ORDER BY id ASC').all() as any[];
+    for (const s of subs) {
+      const newId = allocateTaskId();
+      updSub.run(newId, s.id);
+      updNext.run(newId, s.id);
+      updProgressSub.run(newId, s.id);
+      updSegSub.run(newId, s.id);
+      updHistSub.run(newId, s.id);
+    }
+
+    // 3) 一致性校验：每条状态历史/计时段都能对应到实际任务
+    let orphans = 0;
+    for (const h of db.prepare('SELECT task_id, task_type FROM status_change_history').all() as any[]) {
+      const exists = h.task_type === 'main'
+        ? db.prepare('SELECT 1 FROM main_tasks WHERE id = ?').get(h.task_id)
+        : db.prepare('SELECT 1 FROM sub_tasks WHERE id = ?').get(h.task_id);
+      if (!exists) orphans++;
+    }
+    for (const s of db.prepare('SELECT task_id, task_type FROM time_segments').all() as any[]) {
+      const exists = s.task_type === 'main'
+        ? db.prepare('SELECT 1 FROM main_tasks WHERE id = ?').get(s.task_id)
+        : db.prepare('SELECT 1 FROM sub_tasks WHERE id = ?').get(s.task_id);
+      if (!exists) orphans++;
+    }
+    // 跨表撞号校验（应为空）
+    const overlap = (db.prepare('SELECT COUNT(*) AS c FROM main_tasks m JOIN sub_tasks s ON m.id = s.id').get() as any).c as number;
+    stats.orphans = orphans + overlap;
+  });
+  run();
+
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(TASK_ID_MIGRATION_KEY, 'done');
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run('task_id_migration_stats', JSON.stringify(stats));
+  console.log(`[迁移] 全局任务ID迁移完成: 主任务=${stats.main}, 子任务=${stats.sub}, 状态历史=${stats.history}, 计时段=${stats.segments}, 一致性问题=${stats.orphans}, 备份=${stats.backup}`);
+}
+
 // ---- 计时（V1.1.0）----
 // 计时段：task_type + task_id 定位任务（与状态历史同一套 ID 体系）；
 // start_time / end_time 为本地时间 'YYYY-MM-DD HH:MM'（精确到分钟），end_time 为空表示进行中。
@@ -755,9 +898,9 @@ function getTimeSegment(id: number): any {
   return db.prepare('SELECT * FROM time_segments WHERE id = ?').get(id);
 }
 
-// 当前正在运行的计时段（全局同时最多一个）
+// 当前正在运行的计时段（全局同时最多一个；待确认段不视为运行中）
 export function getRunningTimer(): any {
-  const seg = db.prepare('SELECT * FROM time_segments WHERE end_time IS NULL ORDER BY start_time DESC LIMIT 1').get() as any;
+  const seg = db.prepare('SELECT * FROM time_segments WHERE end_time IS NULL AND is_valid = 1 ORDER BY start_time DESC LIMIT 1').get() as any;
   if (!seg) return null;
   let taskName = '';
   if (seg.task_type === 'main') {
@@ -768,12 +911,21 @@ export function getRunningTimer(): any {
   return { ...seg, task_name: taskName };
 }
 
+// 超长计时阈值（小时），默认 4，可调 1-12
+function getTimerMaxMinutes(): number {
+  const v = (db.prepare("SELECT value FROM settings WHERE key = 'timer_max_hours'").get() as any)?.value;
+  const h = Math.min(12, Math.max(1, parseInt(String(v || ''), 10) || 4));
+  return h * 60;
+}
+
 function finalizeSegment(id: number, endTime: string): any {
   const seg = db.prepare('SELECT * FROM time_segments WHERE id = ?').get(id) as any;
   if (!seg || seg.end_time) return seg;
   const dur = minutesBetween(seg.start_time, endTime);
-  db.prepare('UPDATE time_segments SET end_time = ?, duration = ?, updated_at = ? WHERE id = ?')
-    .run(endTime, dur, now(), id);
+  // 超长段标记为待确认（is_valid = 0），由用户确认/修正/删除
+  const valid = dur > getTimerMaxMinutes() ? 0 : 1;
+  db.prepare('UPDATE time_segments SET end_time = ?, duration = ?, is_valid = ?, updated_at = ? WHERE id = ?')
+    .run(endTime, dur, valid, now(), id);
   return getTimeSegment(id);
 }
 
@@ -783,7 +935,8 @@ export function startTimer(taskType: TaskType, taskId: number, mode: 'auto' | 'm
   if (taskType === 'main') task = db.prepare('SELECT status FROM main_tasks WHERE id = ?').get(taskId);
   else task = db.prepare('SELECT status, main_task_id FROM sub_tasks WHERE id = ?').get(taskId);
   if (!task) throw new Error(te(lang, 'timer.taskNotFound'));
-  if (task.status === '已取消') return { blocked: true, code: 'cancelled' };
+  // 已取消/已完成的任务不能开始计时
+  if (task.status === '已取消' || task.status === '已完成') return { blocked: true, code: 'cancelled' };
 
   const running = getRunningTimer();
   if (running) {
@@ -807,28 +960,30 @@ export function stopCurrentTimer(): any {
   return { success: true, segment: finalizeSegment(running.id, localNowMinute()) };
 }
 
-// 停止所有运行中的计时段（软件退出时调用）
+// 停止所有运行中的计时段（软件退出时调用；超长段同样会标记为待确认，不弹框）
 export function stopAllRunningTimers(): void {
-  const rows = db.prepare('SELECT id FROM time_segments WHERE end_time IS NULL').all() as any[];
+  const rows = db.prepare('SELECT id FROM time_segments WHERE end_time IS NULL AND is_valid = 1').all() as any[];
   for (const r of rows) finalizeSegment(r.id, localNowMinute());
 }
 
 // 启动时清理孤儿段（上次进程被强制终止留下的运行中记录）：
-// 闭合成 0 时长并标记为待确认异常（is_valid = 0）
+// 保留开始时间与结束时间原貌（结束时间保持为空），仅标记为待确认（is_valid = 0），
+// 由用户手动补结束时间或删除（补时间后自动视为有效）。
 export function cleanupOrphanTimers(): void {
-  db.prepare('UPDATE time_segments SET end_time = start_time, duration = 0, is_valid = 0, updated_at = ? WHERE end_time IS NULL')
+  db.prepare('UPDATE time_segments SET is_valid = 0, updated_at = ? WHERE end_time IS NULL AND is_valid = 1')
     .run(now());
 }
 
-// 计时段手动新增/编辑校验（同一套规则）
-function validateSegment(taskType: TaskType, taskId: number, startTime: string, endTime: string, excludeId: number | null, lang: ServerLang): string | null {
+// 计时段手动新增/编辑校验（同一套规则；forInsert=true 时校验任务状态）
+function validateSegment(taskType: TaskType, taskId: number, startTime: string, endTime: string, excludeId: number | null, lang: ServerLang, forInsert: boolean = true): string | null {
   if (!TIME_RE.test(startTime || '') || !TIME_RE.test(endTime || '')) return te(lang, 'timer.invalidTime');
   if (endTime < startTime) return te(lang, 'timer.endBeforeStart');
   let status = '';
   if (taskType === 'main') status = ((db.prepare('SELECT status FROM main_tasks WHERE id = ?').get(taskId) as any)?.status) || '';
   else status = ((db.prepare('SELECT status FROM sub_tasks WHERE id = ?').get(taskId) as any)?.status) || '';
   if (!status) return te(lang, 'timer.taskNotFound');
-  if (status === '已取消') return te(lang, 'timer.cancelled');
+  // 已取消/已完成的任务不允许新增计时段（编辑已有段不受限）
+  if (forInsert && (status === '已取消' || status === '已完成')) return te(lang, 'timer.cancelled');
   const segs = db.prepare('SELECT * FROM time_segments WHERE task_type = ? AND task_id = ?').all(taskType, taskId) as any[];
   for (const s of segs) {
     if (excludeId && s.id === excludeId) continue;
@@ -857,10 +1012,12 @@ export function addTimeSegment(taskType: TaskType, taskId: number, startTime: st
 export function updateTimeSegment(id: number, startTime: string, endTime: string, lang: ServerLang = 'zh'): any {
   const seg = getTimeSegment(id) as any;
   if (!seg) throw new Error(te(lang, 'timer.notFound'));
-  if (!seg.end_time) throw new Error(te(lang, 'timer.runningReadonly'));
-  const err = validateSegment(seg.task_type, seg.task_id, startTime, endTime, id, lang);
+  // 正常运行中的段只读；异常终止（end 空 + is_valid=0）允许补结束时间
+  if (!seg.end_time && seg.is_valid === 1) throw new Error(te(lang, 'timer.runningReadonly'));
+  const err = validateSegment(seg.task_type, seg.task_id, startTime, endTime, id, lang, false);
   if (err) throw new Error(err);
-  db.prepare('UPDATE time_segments SET start_time = ?, end_time = ?, duration = ?, updated_at = ? WHERE id = ?')
+  // 保存后视为用户确认有效
+  db.prepare('UPDATE time_segments SET start_time = ?, end_time = ?, duration = ?, is_valid = 1, updated_at = ? WHERE id = ?')
     .run(startTime, endTime, minutesBetween(startTime, endTime), now(), id);
   return getTimeSegment(id);
 }
@@ -868,11 +1025,38 @@ export function updateTimeSegment(id: number, startTime: string, endTime: string
 export function deleteTimeSegment(id: number, lang: ServerLang = 'zh'): void {
   const seg = getTimeSegment(id) as any;
   if (!seg) throw new Error(te(lang, 'timer.notFound'));
-  if (!seg.end_time) throw new Error(te(lang, 'timer.runningReadonly'));
+  if (!seg.end_time && seg.is_valid === 1) throw new Error(te(lang, 'timer.runningReadonly'));
   db.prepare('DELETE FROM time_segments WHERE id = ?').run(id);
 }
 
+// 确认待确认段有效（需已有结束时间）
+export function confirmTimeSegment(id: number, lang: ServerLang = 'zh'): any {
+  const seg = getTimeSegment(id) as any;
+  if (!seg) throw new Error(te(lang, 'timer.notFound'));
+  if (!seg.end_time) throw new Error(te(lang, 'timer.cannotConfirmRunning'));
+  db.prepare('UPDATE time_segments SET is_valid = 1, updated_at = ? WHERE id = ?').run(now(), id);
+  return getTimeSegment(id);
+}
+
+// 待确认段列表（is_valid = 0），附带所属主任务信息（用于启动弹框与表单跳转）
+export function getPendingSegments(): any[] {
+  const rows = db.prepare('SELECT * FROM time_segments WHERE is_valid = 0 ORDER BY start_time DESC, id DESC').all() as any[];
+  return rows.map((s: any) => {
+    let mainTaskId = s.task_id;
+    let taskName = '';
+    if (s.task_type === 'main') {
+      const t = db.prepare('SELECT id, name FROM main_tasks WHERE id = ?').get(s.task_id) as any;
+      taskName = t?.name || '';
+    } else {
+      const t = db.prepare('SELECT main_task_id, name FROM sub_tasks WHERE id = ?').get(s.task_id) as any;
+      if (t) { mainTaskId = t.main_task_id; taskName = t.name; }
+    }
+    return { ...s, main_task_id: mainTaskId, task_name: taskName };
+  });
+}
+
 // 主任务计时汇总：有子任务时由所有子任务合计，无子任务时为主任务自身合计
+// 待确认段（is_valid = 0）不计入总时长
 export function getTimerSummary(mainTaskId: number): any {
   const subs = db.prepare('SELECT id, name, status FROM sub_tasks WHERE main_task_id = ? ORDER BY sort_order ASC, created_at ASC').all(mainTaskId) as any[];
   const hasSubs = subs.length > 0;
@@ -882,9 +1066,9 @@ export function getTimerSummary(mainTaskId: number): any {
   for (const s of subs) {
     const segs = getTimeSegments('sub', s.id);
     subSegments[s.id] = segs;
-    subTotal += segs.reduce((sum: number, x: any) => sum + (x.duration || 0), 0);
+    subTotal += segs.filter((x: any) => x.is_valid === 1).reduce((sum: number, x: any) => sum + (x.duration || 0), 0);
   }
-  const mainOwnTotal = mainSegments.reduce((sum: number, x: any) => sum + (x.duration || 0), 0);
+  const mainOwnTotal = mainSegments.filter((x: any) => x.is_valid === 1).reduce((sum: number, x: any) => sum + (x.duration || 0), 0);
   const running = getRunningTimer();
   const runningBelongs = running && (
     (running.task_type === 'main' && running.task_id === mainTaskId) ||
@@ -899,6 +1083,41 @@ export function getTimerSummary(mainTaskId: number): any {
     total: hasSubs ? subTotal : mainOwnTotal,
     runningSegment: runningBelongs ? running : null,
   };
+}
+
+// ---- 测试辅助（debug 路由使用）----
+
+// 把某个计时段的开始时间往前挪 minutes 分钟（用于模拟超长段）
+export function backdateSegment(id: number, minutes: number): void {
+  const seg = getTimeSegment(id) as any;
+  if (!seg) throw new Error('segment not found');
+  const d = new Date(seg.start_time.replace(' ', 'T') + ':00');
+  d.setMinutes(d.getMinutes() - minutes);
+  const ns = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  db.prepare('UPDATE time_segments SET start_time = ?, updated_at = ? WHERE id = ?').run(ns, now(), id);
+}
+
+// 全库一致性校验：状态历史/计时段的 task_id 都能对应到实际任务，且主/子任务 ID 无撞号
+export function checkDataConsistency(): any {
+  const problems: string[] = [];
+  let historyCount = 0, segmentCount = 0;
+  for (const h of db.prepare('SELECT task_id, task_type FROM status_change_history').all() as any[]) {
+    historyCount++;
+    const exists = h.task_type === 'main'
+      ? db.prepare('SELECT 1 FROM main_tasks WHERE id = ?').get(h.task_id)
+      : db.prepare('SELECT 1 FROM sub_tasks WHERE id = ?').get(h.task_id);
+    if (!exists) problems.push(`status_history(${h.task_type}:${h.task_id})`);
+  }
+  for (const s of db.prepare('SELECT task_id, task_type FROM time_segments').all() as any[]) {
+    segmentCount++;
+    const exists = s.task_type === 'main'
+      ? db.prepare('SELECT 1 FROM main_tasks WHERE id = ?').get(s.task_id)
+      : db.prepare('SELECT 1 FROM sub_tasks WHERE id = ?').get(s.task_id);
+    if (!exists) problems.push(`time_segment(${s.task_type}:${s.task_id})`);
+  }
+  const overlap = (db.prepare('SELECT COUNT(*) AS c FROM main_tasks m JOIN sub_tasks s ON m.id = s.id').get() as any).c as number;
+  if (overlap > 0) problems.push(`id_overlap(${overlap})`);
+  return { ok: problems.length === 0, historyCount, segmentCount, problems: problems.slice(0, 20) };
 }
 
 // 删除子任务（级联清理其计时记录与状态变更记录）；"标记已取消"不走此路径

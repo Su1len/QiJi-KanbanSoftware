@@ -25,8 +25,9 @@ const MSGS: Record<string, { zh: string; en: string }> = {
   'timer.invalidTime': { zh: '时间格式错误，请精确到分钟', en: 'Invalid time format. Please use minute precision.' },
   'timer.endBeforeStart': { zh: '结束时间不能早于开始时间', en: 'End time cannot be earlier than start time.' },
   'timer.overlap': { zh: '计时段之间不能有时间重叠', en: 'Time segments cannot overlap.' },
-  'timer.cancelled': { zh: '已取消的任务不能新增计时段', en: 'Cannot add time segments to a cancelled task.' },
+  'timer.cancelled': { zh: '已取消或已完成的任务不能新增计时段，请先将任务状态改回进行中或暂搁置', en: 'Cannot add time segments to a cancelled or completed task. Change the status back to In Progress or Paused first.' },
   'timer.runningReadonly': { zh: '正在计时的时段不能修改', en: 'A running time segment cannot be modified.' },
+  'timer.cannotConfirmRunning': { zh: '该计时段还没有结束时间，请先修正起止时间', en: 'This segment has no end time yet. Please fix its start/end time first.' },
   'timer.notFound': { zh: '计时记录不存在', en: 'Time segment not found.' },
 };
 

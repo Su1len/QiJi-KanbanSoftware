@@ -142,6 +142,8 @@ export const api = {
   deleteTimeSegment: (id: number) => request<any>('DELETE', `/api/timer/segments/${id}`),
   getTimerSummary: (mainTaskId: number) =>
     request<any>('GET', `/api/timer/summary?mainTaskId=${mainTaskId}`),
+  confirmTimeSegment: (id: number) => request<any>('PUT', `/api/timer/segments/${id}/confirm`),
+  getPendingSegments: () => request<{ count: number; segments: any[] }>('GET', '/api/timer/pending'),
 
   // Repeat tasks
   getRepeatTasks: () => request<any[]>('GET', '/api/repeats'),

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Tabs, Button, DatePicker, Input, message, Select, TimePicker, Switch, Upload } from 'antd';
+import { Modal, Tabs, Button, DatePicker, Input, message, Select, TimePicker, Switch, Upload, InputNumber } from 'antd';
 import { api } from '../../utils/api-client';
 import { useTheme } from '../../context/ThemeContext';
 import { useMode } from '../../context/ModeContext';
@@ -30,10 +30,15 @@ const SettingsDialog: React.FC<{
   const [password, setPassword] = useState('');
   const [decryptedKey, setDecryptedKey] = useState('');
   const [summaryTime, setSummaryTime] = useState<dayjs.Dayjs | null>(null);
+  const [timerMaxHours, setTimerMaxHours] = useState(4);
 
   useEffect(() => {
     api.hasApiKey().then(has => { if (has) setDecryptedKey(t('set.api.set')); });
     api.getSetting('summary_time').then(v => { if (v) setSummaryTime(dayjs(v, 'HH:mm')); });
+    api.getSetting('timer_max_hours').then(v => {
+      const n = parseInt(String(v || ''), 10);
+      if (n >= 1 && n <= 12) setTimerMaxHours(n);
+    });
   }, []);
 
   useEffect(() => { setSelectedTheme(themeName); }, [themeName]);
@@ -188,6 +193,27 @@ const SettingsDialog: React.FC<{
                 { value: 'manual', label: `${t('timer.mode.manual')}（${t('timer.mode.manualDesc')}）` },
               ]}
             />
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <p style={{ marginBottom: 8, color: 'var(--color-text-secondary)', fontSize: 13 }}>
+              {t('timer.maxHours')}
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={1}
+                max={12}
+                step={1}
+                value={timerMaxHours}
+                onChange={async (v) => {
+                  const n = Math.min(12, Math.max(1, Math.round(Number(v) || 4)));
+                  setTimerMaxHours(n);
+                  try { await api.setSetting('timer_max_hours', String(n)); } catch (e) { console.error(e); }
+                }}
+              />
+              <span style={{ color: 'var(--color-text-secondary)', fontSize: 13 }}>
+                {t('timer.maxHoursDesc')}
+              </span>
+            </div>
           </div>
           <div style={{ marginTop: 16 }}>
             <p style={{ marginBottom: 8, color: 'var(--color-text-secondary)', fontSize: 13 }}>

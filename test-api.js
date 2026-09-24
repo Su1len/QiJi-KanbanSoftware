@@ -1256,6 +1256,128 @@ async function runTests() {
     record('任务 ID 全局唯一稳定（同名任务/子任务）', ok,
       `mains=${t1.id},${t2.id}; subs=${s1.id},${s2.id}`);
   }
+
+  // ── 用例 78-86：计时第二批（V1.1.0） ──
+  {
+    // 全局唯一 ID 体系——批量创建后主/子任务 ID 全局无重复、无跨表撞号
+    const createdMainIds = [], createdSubIds = [];
+    for (let i = 0; i < 3; i++) {
+      const { body: m } = await post('/api/main-tasks', { name: `ID全局校验${i}`, content: 'x', priority: 5, status: '进行中', task_date: TEST_DATE, sub_tasks: [{ name: `ID子${i}a` }, { name: `ID子${i}b` }] });
+      createdMainIds.push(m.id);
+      const ws = await get(`/api/main-tasks/${m.id}/with-subs`);
+      createdSubIds.push(...ws.body.sub_tasks.map(s => s.id));
+    }
+    const all = [...createdMainIds, ...createdSubIds];
+    const unique = new Set(all);
+    const noOverlap = createdMainIds.every(id => !createdSubIds.includes(id));
+    const ok = unique.size === all.length && noOverlap && all.every(id => Number.isInteger(id) && id > 0);
+    record('全局唯一ID（主+子任务同池取号无重复）', ok,
+      `mains=${createdMainIds.join(',')}; subs=${createdSubIds.join(',')}`);
+  }
+  {
+    // 迁移后数据一致性校验（状态历史/计时段引用有效、无撞号）
+    const { status, body } = await get('/api/debug/consistency');
+    const ok = status === 200 && body.ok === true;
+    record('数据一致性校验（历史/计时段引用有效）', ok,
+      `history=${body.historyCount}, segments=${body.segmentCount}, problems=${JSON.stringify(body.problems)}`);
+  }
+  {
+    // 迁移统计已记录（主/子/历史/计时段数量 + 备份文件名）
+    const stats = await get('/api/settings/task_id_migration_stats');
+    let parsed = null;
+    try { parsed = JSON.parse(stats.body.value || '{}'); } catch {}
+    const ok = !!parsed && typeof parsed.main === 'number' && typeof parsed.sub === 'number'
+      && typeof parsed.history === 'number' && typeof parsed.segments === 'number';
+    record('迁移统计记录（数量+校验）', ok,
+      ok ? `main=${parsed.main}, sub=${parsed.sub}, history=${parsed.history}, segments=${parsed.segments}` : 'missing');
+  }
+  {
+    // 孤儿段——保留开始时间、结束时间为空、标记待确认；不视为运行中；补时间后自动有效
+    const { body: m } = await post('/api/main-tasks', { name: '孤儿段校验', content: 'x', priority: 5, status: '进行中', task_date: TEST_DATE, sub_tasks: [] });
+    const started = await post('/api/timer/start', { taskType: 'main', taskId: m.id, mode: 'manual' });
+    const segId = started.body.segment.id;
+    await post('/api/debug/simulate-crash', {});
+    const segs = await get(`/api/timer/segments?taskType=main&taskId=${m.id}`);
+    const seg = segs.body.find(s => s.id === segId);
+    const running = await get('/api/timer/running');
+    const ok = seg && seg.start_time && seg.end_time === null && seg.is_valid === 0
+      && (!running.body || running.body.id !== segId);
+    record('孤儿段保留开始时间并标记待确认', ok,
+      ok ? `start=${seg.start_time}, end=${seg.end_time}, valid=${seg.is_valid}` : JSON.stringify(seg));
+    // 补结束时间（start + 30 分钟）→ 自动有效
+    const startD = new Date(seg.start_time.replace(' ', 'T') + ':00');
+    startD.setMinutes(startD.getMinutes() + 30);
+    const endStr = `${startD.getFullYear()}-${String(startD.getMonth() + 1).padStart(2, '0')}-${String(startD.getDate()).padStart(2, '0')} ${String(startD.getHours()).padStart(2, '0')}:${String(startD.getMinutes()).padStart(2, '0')}`;
+    const fixed = await put(`/api/timer/segments/${segId}`, { startTime: seg.start_time, endTime: endStr });
+    const ok2 = fixed.status === 200 && fixed.body.is_valid === 1 && fixed.body.duration === 30;
+    record('孤儿段补结束时间后自动有效', ok2,
+      `valid=${fixed.body.is_valid}, duration=${fixed.body.duration}`);
+  }
+  {
+    // 超长段停止后标记待确认（阈值 1 小时）+ 待确认接口 + 确认有效
+    await put('/api/settings/timer_max_hours', { value: '1' });
+    const { body: m } = await post('/api/main-tasks', { name: '超长段校验', content: 'x', priority: 5, status: '进行中', task_date: TEST_DATE, sub_tasks: [] });
+    const started = await post('/api/timer/start', { taskType: 'main', taskId: m.id, mode: 'manual' });
+    await post('/api/debug/age-segment', { id: started.body.segment.id, minutes: 90 });
+    const stopped = await post('/api/timer/stop');
+    const overLimit = stopped.body.segment.is_valid === 0 && stopped.body.segment.duration >= 90;
+    const pending = await get('/api/timer/pending');
+    const included = (pending.body.segments || []).some(s => s.id === stopped.body.segment.id);
+    record('超长段停止后标记待确认（阈值1小时）', overLimit && included,
+      `valid=${stopped.body.segment.is_valid}, dur=${stopped.body.segment.duration}, pending=${pending.body.count}`);
+    const confirmed = await put(`/api/timer/segments/${stopped.body.segment.id}/confirm`);
+    const ok2 = confirmed.status === 200 && confirmed.body.is_valid === 1;
+    record('待确认段确认有效', ok2, `valid=${confirmed.body.is_valid}`);
+    await put('/api/settings/timer_max_hours', { value: '4' });
+  }
+  {
+    // 待确认段不计入总时长
+    const { body: m } = await post('/api/main-tasks', { name: '待确认不计入', content: 'x', priority: 5, status: '进行中', task_date: TEST_DATE, sub_tasks: [] });
+    await post('/api/timer/segments', { taskType: 'main', taskId: m.id, startTime: '2026-02-01 09:00', endTime: '2026-02-01 10:00' });
+    const before = await get(`/api/timer/summary?mainTaskId=${m.id}`);
+    await put('/api/settings/timer_max_hours', { value: '1' });
+    const started = await post('/api/timer/start', { taskType: 'main', taskId: m.id, mode: 'manual' });
+    await post('/api/debug/age-segment', { id: started.body.segment.id, minutes: 90 });
+    const stopped = await post('/api/timer/stop');
+    await put('/api/settings/timer_max_hours', { value: '4' });
+    const after = await get(`/api/timer/summary?mainTaskId=${m.id}`);
+    const ok = stopped.body.segment.is_valid === 0 && after.body.total === before.body.total;
+    record('待确认段不计入总时长', ok,
+      `before=${before.body.total}, after=${after.body.total}, pendingValid=${stopped.body.segment.is_valid}`);
+    await del('/api/timer/segments/' + stopped.body.segment.id);
+  }
+  {
+    // 已取消/已完成任务禁止新增，但允许编辑/删除已有段
+    const { body: m } = await post('/api/main-tasks', { name: '状态限制校验', content: 'x', priority: 5, status: '进行中', task_date: TEST_DATE, sub_tasks: [] });
+    const seg = await post('/api/timer/segments', { taskType: 'main', taskId: m.id, startTime: '2026-02-02 09:00', endTime: '2026-02-02 09:30' });
+    await put(`/api/main-tasks/${m.id}`, { status: '已取消' });
+    const addCancelled = await post('/api/timer/segments', { taskType: 'main', taskId: m.id, startTime: '2026-02-02 11:00', endTime: '2026-02-02 11:30' });
+    const editCancelled = await put(`/api/timer/segments/${seg.body.id}`, { startTime: '2026-02-02 09:00', endTime: '2026-02-02 09:45' });
+    await put(`/api/main-tasks/${m.id}`, { status: '已完成' });
+    const addCompleted = await post('/api/timer/segments', { taskType: 'main', taskId: m.id, startTime: '2026-02-02 13:00', endTime: '2026-02-02 13:30' });
+    const delOk = await del('/api/timer/segments/' + seg.body.id);
+    const ok = addCancelled.status === 400 && editCancelled.status === 200 && editCancelled.body.duration === 45
+      && addCompleted.status === 400 && delOk.status === 200;
+    record('已取消/已完成任务禁止新增、允许编辑删除', ok,
+      `addCancel=${addCancelled.status}, edit=${editCancelled.status}, addDone=${addCompleted.status}, del=${delOk.status}`);
+  }
+  {
+    // 稍后处理（snooze）设置读写（跨天逻辑的数据基础）
+    await put('/api/settings/timer_pending_snooze_date', { value: '2026-09-24' });
+    const got = await get('/api/settings/timer_pending_snooze_date');
+    const ok = got.body.value === '2026-09-24';
+    record('待确认提醒稍后处理（snooze 日期读写）', ok, `value=${got.body.value}`);
+  }
+  {
+    // 按钮文案/状态数据基础：开始成功 + 重复开始返回 alreadyRunning 提示信号
+    const { body: m } = await post('/api/main-tasks', { name: '按钮文案校验', content: 'x', priority: 5, status: '进行中', task_date: TEST_DATE, sub_tasks: [] });
+    const s1 = await post('/api/timer/start', { taskType: 'main', taskId: m.id, mode: 'manual' });
+    const s2 = await post('/api/timer/start', { taskType: 'main', taskId: m.id, mode: 'manual' });
+    await post('/api/timer/stop');
+    const ok = s1.body.success === true && s2.body.alreadyRunning === true;
+    record('计时按钮状态数据基础（开始/进行中提示）', ok,
+      `start=${s1.body.success}, again=${s2.body.alreadyRunning}`);
+  }
 }
 
 // ─── 主流程 ────────────────────────────────────────────

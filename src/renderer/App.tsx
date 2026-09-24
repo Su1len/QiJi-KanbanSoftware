@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ConfigProvider, theme, Layout, message } from 'antd';
+import { ConfigProvider, theme, Layout, message, Modal, Button, DatePicker } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import enUS from 'antd/locale/en_US';
 import dayjs from 'dayjs';
 import { api } from './utils/api-client';
 import { getTodayStr, getWeekDates, getWeekStart, formatDateWithWeek, getChineseWeekday } from './utils/date-utils';
+import { trFmt } from './i18n';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { ModeProvider, useMode } from './context/ModeContext';
 import { LanguageProvider, useLang } from './context/LanguageContext';
@@ -110,6 +111,12 @@ const AppInner: React.FC = () => {
   const [timerMode, setTimerMode] = useState<'auto' | 'manual'>('auto');
   const [runningTimer, setRunningTimer] = useState<any>(null);
   const [timerVersion, setTimerVersion] = useState(0);
+  // 超长段停止确认 + 修正时长 + 启动待确认处理队列
+  const [pendingStopSeg, setPendingStopSeg] = useState<any>(null);
+  const [segFix, setSegFix] = useState<{ segment: any; start: any; end: any } | null>(null);
+  const [pendingQueue, setPendingQueue] = useState<number[]>([]);
+  const [pendingIndex, setPendingIndex] = useState(0);
+  const [pendingStartPrompt, setPendingStartPrompt] = useState<{ count: number; segments: any[]; today: string } | null>(null);
 
   const refreshRunningTimer = useCallback(async () => {
     try { setRunningTimer(await api.getRunningTimer()); } catch (e) { console.error(e); }
@@ -124,6 +131,57 @@ const AppInner: React.FC = () => {
     setTimerVersion(v => v + 1);
     refreshRunningTimer();
   }, [refreshRunningTimer]);
+
+  // 启动时检测待确认段（跨天重新提醒；"稍后处理"当天不再提醒）
+  useEffect(() => {
+    if (!loaded) return;
+    (async () => {
+      try {
+        const today = dayjs().format('YYYY-MM-DD');
+        const snooze = await api.getSetting('timer_pending_snooze_date');
+        if (snooze === today) return;
+        const pending = await api.getPendingSegments();
+        if (!pending || !pending.count) return;
+        // 使用自定义弹框（按钮交互可控），记录待确认数据
+        setPendingStartPrompt({ count: pending.count, segments: pending.segments || [], today });
+      } catch (e) { console.error(e); }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded]);
+
+  // 待确认表单队列：按最新待确认段取去重后的前 10 个主任务，依次打开表单
+  const openPendingAt = useCallback(async (ids: number[], idx: number) => {
+    if (idx >= ids.length) { setPendingQueue([]); setPendingIndex(0); return; }
+    setPendingIndex(idx);
+    try {
+      const task = await api.getMainTaskWithSubs(ids[idx]);
+      if (task) { setEditingTask(task); setShowTaskForm(true); }
+    } catch (e) { console.error(e); }
+  }, []);
+
+  const startPendingQueue = useCallback((segments: any[]) => {
+    const ids: number[] = [];
+    for (const s of segments) {
+      if (s.main_task_id && !ids.includes(s.main_task_id)) ids.push(s.main_task_id);
+      if (ids.length >= 10) break;
+    }
+    if (ids.length === 0) return;
+    setPendingQueue(ids);
+    setPendingIndex(0);
+    openPendingAt(ids, 0);
+  }, [openPendingAt]);
+
+  // 表单关闭/提交后推进待确认队列
+  const advancePendingQueue = useCallback(() => {
+    if (pendingQueue.length === 0) return;
+    const next = pendingIndex + 1;
+    if (next < pendingQueue.length) {
+      openPendingAt(pendingQueue, next);
+    } else {
+      setPendingQueue([]);
+      setPendingIndex(0);
+    }
+  }, [pendingQueue, pendingIndex, openPendingAt]);
 
   // 当前计时目标：有子任务时按选中的子任务计时；无子任务时对主任务计时
   const timerTarget = useMemo(() => {
@@ -146,9 +204,13 @@ const AppInner: React.FC = () => {
     (async () => {
       const cur = runningRef.current;
       if (cur && cur !== timerTargetKey) {
-        await api.stopTimer().catch(() => {});
+        const r = await api.stopTimer().catch(() => null);
         if (cancelled) return;
         bumpTimer();
+        // 切换导致的停止若超长，同样弹确认框
+        if (r?.segment && r.segment.is_valid === 0 && r.segment.end_time) {
+          setPendingStopSeg(r.segment);
+        }
         return;
       }
       if (timerMode === 'auto' && timerTargetKey && cur !== timerTargetKey) {
@@ -170,8 +232,15 @@ const AppInner: React.FC = () => {
     } catch (e: any) { message.error(e.message); }
   }, [timerTarget, timerMode, bumpTimer, t]);
 
+  // 停止计时：返回的段若超过阈值（is_valid = 0）则立即弹出确认框
   const handleStopTimer = useCallback(async () => {
-    try { await api.stopTimer(); bumpTimer(); } catch (e: any) { message.error(e.message); }
+    try {
+      const r = await api.stopTimer();
+      bumpTimer();
+      if (r?.segment && r.segment.is_valid === 0 && r.segment.end_time) {
+        setPendingStopSeg(r.segment);
+      }
+    } catch (e: any) { message.error(e.message); }
   }, [bumpTimer]);
 
   const handleTimerModeChange = useCallback(async (v: 'auto' | 'manual') => {
@@ -336,8 +405,14 @@ const AppInner: React.FC = () => {
       else { await api.createMainTask({ ...data, task_date: selectedDate }); }
       setShowTaskForm(false); setEditingTask(null); loadTasks();
       setProjectRefreshKey(k => k + 1);
+      advancePendingQueue();
     } catch (e) { console.error(e); }
   };
+  const handleTaskFormCancel = useCallback(() => {
+    setShowTaskForm(false);
+    setEditingTask(null);
+    advancePendingQueue();
+  }, [advancePendingQueue]);
   const handleSimpleComplete = async () => {
     if (!selectedTask) return;
     try {
@@ -405,7 +480,8 @@ const AppInner: React.FC = () => {
             onRetrospectTask={() => setShowRetrospect(true)}
             progressReports={progressReports}
             showTaskForm={showTaskForm} editingTask={editingTask} selectedDateForForm={selectedDate}
-            onTaskFormSubmit={handleFormSubmit} onTaskFormCancel={() => { setShowTaskForm(false); setEditingTask(null); }}
+            onTaskFormSubmit={handleFormSubmit} onTaskFormCancel={handleTaskFormCancel}
+            taskFormTitleExtra={pendingQueue.length > 0 ? `${t('timer.pendingFormTitle')} ${pendingIndex + 1}/${pendingQueue.length}` : undefined}
             showSettings={showSettings} settingsTab={settingsTab}
             onSettingsClose={() => setShowSettings(false)}
             onOpenSettingsAtTab={(tab: string) => { setSettingsTab(tab); setShowSettings(true); }}
@@ -417,6 +493,105 @@ const AppInner: React.FC = () => {
           />
         </Content>
       </Layout>
+
+      {/* 启动待确认段提醒（自定义弹框） */}
+      {pendingStartPrompt && (
+        <Modal
+          open
+          title={trFmt('timer.pendingPrompt', lang, { n: pendingStartPrompt.count })}
+          footer={null}
+          onCancel={() => {
+            api.setSetting('timer_pending_snooze_date', pendingStartPrompt.today).catch(() => {});
+            setPendingStartPrompt(null);
+          }}
+          zIndex={2300}
+          width={420}
+        >
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Button type="primary" onClick={() => {
+              const segs = pendingStartPrompt.segments;
+              setPendingStartPrompt(null);
+              startPendingQueue(segs);
+            }}>{t('timer.viewNow')}</Button>
+            <Button onClick={() => {
+              api.setSetting('timer_pending_snooze_date', pendingStartPrompt.today).catch(() => {});
+              setPendingStartPrompt(null);
+            }}>{t('timer.later')}</Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* 超长段停止确认（三选项：确认有效 / 修正时长 / 删除） */}
+      {pendingStopSeg && (
+        <Modal
+          open
+          title={t('timer.pendingStopTitle')}
+          footer={null}
+          onCancel={() => setPendingStopSeg(null)}
+          zIndex={2100}
+          width={420}
+        >
+          <div style={{ marginBottom: 12, fontSize: 13, color: 'var(--color-text-secondary)' }}>
+            {pendingStopSeg.task_name ? `${pendingStopSeg.task_name} · ` : ''}
+            {pendingStopSeg.start_time} ~ {pendingStopSeg.end_time}
+            {pendingStopSeg.duration != null ? ` · ${pendingStopSeg.duration} min` : ''}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Button type="primary" onClick={async () => {
+              try { await api.confirmTimeSegment(pendingStopSeg.id); } catch (e: any) { message.error(e.message); }
+              setPendingStopSeg(null); bumpTimer();
+            }}>{t('timer.confirmValid')}</Button>
+            <Button onClick={() => {
+              setSegFix({
+                segment: pendingStopSeg,
+                start: dayjs(pendingStopSeg.start_time, 'YYYY-MM-DD HH:mm'),
+                end: pendingStopSeg.end_time ? dayjs(pendingStopSeg.end_time, 'YYYY-MM-DD HH:mm') : null,
+              });
+              setPendingStopSeg(null);
+            }}>{t('timer.fixDuration')}</Button>
+            <Button danger onClick={async () => {
+              try { await api.deleteTimeSegment(pendingStopSeg.id); } catch (e: any) { message.error(e.message); }
+              setPendingStopSeg(null); bumpTimer();
+            }}>{t('timer.deleteSegment')}</Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* 修正时长（编辑起止时间；保存后视为确认有效） */}
+      {segFix && (
+        <Modal
+          open
+          title={t('timer.fixDuration')}
+          onCancel={() => setSegFix(null)}
+          okText={t('common.save')}
+          cancelText={t('common.cancel')}
+          zIndex={2200}
+          width={420}
+          onOk={async () => {
+            const s = segFix.start ? segFix.start.format('YYYY-MM-DD HH:mm') : '';
+            const e = segFix.end ? segFix.end.format('YYYY-MM-DD HH:mm') : '';
+            if (!s || !e) { message.warning(t('timer.cannotConfirmNoEnd')); return; }
+            try {
+              await api.updateTimeSegment(segFix.segment.id, s, e);
+              setSegFix(null);
+              setTimerVersion(v => v + 1);
+            } catch (err: any) { message.error(err.message); }
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 8 }}>
+            <div>
+              <div style={{ fontSize: 12, marginBottom: 4, color: 'var(--color-text-secondary)' }}>{t('timer.startTime')}</div>
+              <DatePicker showTime={{ format: 'HH:mm' }} format="YYYY-MM-DD HH:mm" style={{ width: '100%' }}
+                value={segFix.start} onChange={(v) => setSegFix({ ...segFix, start: v })} />
+            </div>
+            <div>
+              <div style={{ fontSize: 12, marginBottom: 4, color: 'var(--color-text-secondary)' }}>{t('timer.endTime')}</div>
+              <DatePicker showTime={{ format: 'HH:mm' }} format="YYYY-MM-DD HH:mm" style={{ width: '100%' }}
+                value={segFix.end} onChange={(v) => setSegFix({ ...segFix, end: v })} />
+            </div>
+          </div>
+        </Modal>
+      )}
     </ConfigProvider>
   );
 };

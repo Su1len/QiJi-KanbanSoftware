@@ -62,6 +62,7 @@ interface MainViewProps {
   selectedDateForForm: string;
   onTaskFormSubmit: (data: any) => void;
   onTaskFormCancel: () => void;
+  taskFormTitleExtra?: string;
   showSettings: boolean;
   settingsTab: string;
   onSettingsClose: () => void;
@@ -172,6 +173,7 @@ const MainView: React.FC<MainViewProps> = (props) => {
         selectedDate={props.selectedDateForForm}
         onSubmit={props.onTaskFormSubmit}
         onCancel={props.onTaskFormCancel}
+        titleExtra={props.taskFormTitleExtra}
         timerVersion={props.timerVersion}
         onTimersChanged={props.onTimersChanged}
       />

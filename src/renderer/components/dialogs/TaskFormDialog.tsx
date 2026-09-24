@@ -106,6 +106,7 @@ const TaskFormDialog: React.FC<{
   const [hlMarks, setHlMarks] = useState<Record<string, HighlightMark>>({});
   // 计时状态
   const [timerSummary, setTimerSummary] = useState<any>(null);
+  const [subChangeConfirm, setSubChangeConfirm] = useState<{ title: string; onOk: () => void } | null>(null);
   const [segModal, setSegModal] = useState<{ open: boolean; mode: 'add' | 'edit'; taskType: 'main' | 'sub'; taskId: number; segId?: number; start: dayjs.Dayjs | null; end: dayjs.Dayjs | null } | null>(null);
 
   const loadTimerSummary = React.useCallback(async () => {
@@ -162,19 +163,31 @@ const TaskFormDialog: React.FC<{
         <div style={{ fontSize: 12, color: 'var(--color-text-muted)', marginBottom: 4 }}>{t('timer.noSegments')}</div>
       )}
       {segs.map((s: any) => {
-        const running = !s.end_time;
+        const running = !s.end_time && s.is_valid === 1;       // 正常计时中：只读
+        const orphan = !s.end_time && s.is_valid === 0;        // 异常终止：可补结束时间/删除
+        const pending = !!s.end_time && s.is_valid === 0;      // 超长待确认：确认/修正/删除
         return (
-          <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, marginBottom: 4 }}>
+          <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, marginBottom: 4, flexWrap: 'wrap' }}>
             <span style={{ color: 'var(--color-text-primary)' }}>
               {s.start_time} ~ {s.end_time || '...'}
             </span>
-            {running ? (
-              <Tag color="processing" style={{ margin: 0 }}>{t('timer.running')}</Tag>
-            ) : (
+            {running && <Tag color="processing" style={{ margin: 0 }}>{t('timer.running')}</Tag>}
+            {orphan && <Tag color="orange" style={{ margin: 0 }}>{t('timer.orphanTag')}</Tag>}
+            {pending && <Tag color="warning" style={{ margin: 0 }}>{t('timer.pendingTag')}</Tag>}
+            {!running && (
               <>
-                <span style={{ color: 'var(--color-text-secondary)' }}>{fmtDuration(s.duration || 0)}</span>
+                {s.duration != null && <span style={{ color: 'var(--color-text-secondary)' }}>{fmtDuration(s.duration || 0)}</span>}
+                {pending && (
+                  <Button type="link" size="small" style={{ padding: 0, height: 18 }} onClick={async () => {
+                    try {
+                      await api.confirmTimeSegment(s.id);
+                      if (onTimersChanged) onTimersChanged();
+                      await loadTimerSummary();
+                    } catch (e: any) { message.error(e.message); }
+                  }}>{t('timer.confirmValid')}</Button>
+                )}
                 <Button type="link" size="small" style={{ padding: 0, height: 18 }} onClick={() => openEditSegment(s)}>
-                  {t('common.edit')}
+                  {orphan ? t('timer.fixDuration') : t('common.edit')}
                 </Button>
                 <Popconfirm title={t('common.delete') + '?'} onConfirm={() => handleSegDelete(s.id)}
                   okText={t('confirm.deleteOk')} cancelText={t('common.cancel')}>
@@ -189,6 +202,15 @@ const TaskFormDialog: React.FC<{
       })}
     </div>
   );
+
+  // 已取消/已完成的任务不能新增计时段（先提示，服务端同样校验兜底）
+  const canAddSegment = (status?: string | null): boolean => {
+    if (status === '已取消' || status === '已完成') {
+      message.warning(t('timer.cannotAdd'));
+      return false;
+    }
+    return true;
+  };
 
   const statusOptions = STATUS_VALUES.map(v => ({ value: v, label: statusText(v, lang) }));
 
@@ -271,20 +293,12 @@ const TaskFormDialog: React.FC<{
     // 无子任务的主任务第一次新增子任务 → 主任务自身计时记录将被清除
     const existingSubCount = task?.sub_tasks?.length || 0;
     if (task && existingSubCount === 0 && newSubs.length > 0 && (timerSummary?.mainSegments?.length || 0) > 0) {
-      Modal.confirm({
-        title: t('timer.addFirstSubConfirm'),
-        okText: t('common.save'), cancelText: t('common.cancel'),
-        onOk: doSubmit,
-      });
+      setSubChangeConfirm({ title: t('timer.addFirstSubConfirm'), onOk: doSubmit });
       return;
     }
     // 有子任务的主任务删除最后一个子任务 → 子任务计时记录将被清除，主任务从零开始
     if (task && existingSubCount > 0 && newSubs.length === 0) {
-      Modal.confirm({
-        title: t('timer.removeLastSubConfirm'),
-        okText: t('common.save'), cancelText: t('common.cancel'),
-        onOk: doSubmit,
-      });
+      setSubChangeConfirm({ title: t('timer.removeLastSubConfirm'), onOk: doSubmit });
       return;
     }
     doSubmit();
@@ -462,7 +476,7 @@ const TaskFormDialog: React.FC<{
               </span>
               {!timerSummary.hasSubs && (
                 <Button type="dashed" size="small" icon={<PlusOutlined />}
-                  onClick={() => openAddSegment('main', task.id)}>
+                  onClick={() => { if (canAddSegment(task.status)) openAddSegment('main', task.id); }}>
                   {t('timer.addSegment')}
                 </Button>
               )}
@@ -615,7 +629,7 @@ const TaskFormDialog: React.FC<{
                             {t('timer.segments')}：{fmtDuration((timerSummary?.subSegments?.[st.id] || []).reduce((sum: number, x: any) => sum + (x.duration || 0), 0))}
                           </span>
                           <Button type="dashed" size="small" icon={<PlusOutlined />}
-                            onClick={() => openAddSegment('sub', st.id!)}>
+                            onClick={() => { if (canAddSegment(st.status)) openAddSegment('sub', st.id!); }}>
                             {t('timer.addSegment')}
                           </Button>
                         </div>
@@ -646,6 +660,27 @@ const TaskFormDialog: React.FC<{
           </>
         )}
       </Form>
+
+      {/* 计时段归属变更确认（自定义弹框） */}
+      {subChangeConfirm && (
+        <Modal
+          open
+          title={subChangeConfirm.title}
+          footer={null}
+          zIndex={2300}
+          width={420}
+          onCancel={() => setSubChangeConfirm(null)}
+        >
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <Button type="primary" onClick={() => {
+              const fn = subChangeConfirm.onOk;
+              setSubChangeConfirm(null);
+              fn();
+            }}>{t('common.save')}</Button>
+            <Button onClick={() => setSubChangeConfirm(null)}>{t('common.cancel')}</Button>
+          </div>
+        </Modal>
+      )}
 
       {/* 计时段新增/编辑 */}
       {segModal && segModal.open && (

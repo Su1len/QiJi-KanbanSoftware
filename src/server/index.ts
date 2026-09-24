@@ -58,6 +58,11 @@ import {
   updateTimeSegment,
   deleteTimeSegment,
   getTimerSummary,
+  confirmTimeSegment,
+  getPendingSegments,
+  backdateSegment,
+  checkDataConsistency,
+  cleanupOrphanTimers,
 } from './database';
 import { te, getReqLang } from './messages';
 
@@ -375,6 +380,20 @@ app.get('/api/timer/summary', (req, res) => {
     if (!mainTaskId) return res.status(400).json({ error: te(getReqLang(req), 'param.invalid') });
     res.json(getTimerSummary(mainTaskId));
   } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/timer/pending', (_req, res) => {
+  try {
+    const segments = getPendingSegments();
+    res.json({ count: segments.length, segments });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.put('/api/timer/segments/:id/confirm', (req, res) => {
+  try {
+    const seg = confirmTimeSegment(Number(req.params.id), getReqLang(req));
+    res.json(seg);
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
 });
 
 // ==================== Status history ====================
@@ -1000,6 +1019,26 @@ app.post('/api/debug/ensure-daily', (req, res) => {
     ensureDailyRecords(today);
     res.json({ success: true });
   }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/debug/age-segment', (req, res) => {
+  try {
+    const id = Number(req.body.id);
+    const minutes = Number(req.body.minutes) || 0;
+    if (!id) return res.status(400).json({ error: te(getReqLang(req), 'param.invalid') });
+    backdateSegment(id, minutes);
+    res.json({ success: true });
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/debug/simulate-crash', (_req, res) => {
+  try { cleanupOrphanTimers(); res.json({ success: true }); }
+  catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+app.get('/api/debug/consistency', (_req, res) => {
+  try { res.json(checkDataConsistency()); }
   catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
