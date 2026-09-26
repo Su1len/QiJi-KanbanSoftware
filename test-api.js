@@ -1378,6 +1378,97 @@ async function runTests() {
     record('计时按钮状态数据基础（开始/进行中提示）', ok,
       `start=${s1.body.success}, again=${s2.body.alreadyRunning}`);
   }
+
+  // ── 用例 87-94：计时第三批（V1.1.0） ──
+  {
+    // 双条可视化：计划工期 / 实际计时汇总 / 轴范围；无起止时间的子任务只返回蓝条数据
+    const { body: m } = await post('/api/main-tasks', {
+      name: '可视化校验', content: 'x', priority: 5, status: '进行中', task_date: TEST_DATE,
+      sub_tasks: [
+        { name: '可见子A', start_date: '2026-03-01', end_date: '2026-03-03' },
+        { name: '可见子B' },
+      ],
+    });
+    const ws = await get(`/api/main-tasks/${m.id}/with-subs`);
+    const a = ws.body.sub_tasks[0], b = ws.body.sub_tasks[1];
+    await post('/api/timer/segments', { taskType: 'sub', taskId: a.id, startTime: '2026-03-01 09:00', endTime: '2026-03-01 10:30' });
+    await post('/api/timer/segments', { taskType: 'sub', taskId: a.id, startTime: '2026-03-02 09:00', endTime: '2026-03-02 09:45' });
+    await post('/api/timer/segments', { taskType: 'sub', taskId: b.id, startTime: '2026-03-05 09:00', endTime: '2026-03-05 10:00' });
+    const viz = await get(`/api/timer/visualization?mainTaskId=${m.id}`);
+    const rowA = (viz.body.rows || []).find(r => r.name === '可见子A');
+    const rowB = (viz.body.rows || []).find(r => r.name === '可见子B');
+    const ok = viz.body.rows.length === 2
+      && rowA && rowA.plan && rowA.plan.days === 3 && rowA.actualMinutes === 135 && rowA.actualSegments.length === 2
+      && rowA.axisStart === '2026-03-01' && rowA.axisDays === 3
+      && rowB && rowB.plan === null && rowB.actualMinutes === 60 && rowB.actualSegments.length === 1
+      && rowB.axisStart === '2026-03-05' && rowB.axisDays === 1;
+    record('双条可视化数据（计划/实际/轴范围/无计划只蓝条）', ok,
+      ok ? `A(plan=${rowA.plan.days}天, actual=${rowA.actualMinutes}min, axis=${rowA.axisDays}) B(plan=null, actual=${rowB.actualMinutes}min)` : JSON.stringify(viz.body));
+  }
+  {
+    // 超期：计划 2 天，实际超出计划 → 轴取实际覆盖范围（min~max 无留白）
+    const { body: m } = await post('/api/main-tasks', {
+      name: '可视化超期', content: 'x', priority: 5, status: '进行中', task_date: TEST_DATE,
+      sub_tasks: [{ name: '超期子', start_date: '2026-03-10', end_date: '2026-03-11' }],
+    });
+    const ws = await get(`/api/main-tasks/${m.id}/with-subs`);
+    const subId = ws.body.sub_tasks[0].id;
+    await post('/api/timer/segments', { taskType: 'sub', taskId: subId, startTime: '2026-03-12 09:00', endTime: '2026-03-15 17:00' });
+    const viz = await get(`/api/timer/visualization?mainTaskId=${m.id}`);
+    const row = (viz.body.rows || [])[0];
+    const ok = row && row.plan.days === 2
+      && row.axisStart === '2026-03-10' && row.axisEnd === '2026-03-15' && row.axisDays === 6;
+    record('双条可视化轴范围（超期取实际覆盖）', ok,
+      ok ? `plan=2天, axis=${row.axisStart}~${row.axisEnd}(${row.axisDays}天)` : JSON.stringify(viz.body));
+  }
+  {
+    // 采纳追加不覆盖：已有内容 + 追加 + 再追加；无效字段拒绝
+    const { body: m } = await post('/api/main-tasks', { name: '采纳校验', content: 'x', priority: 5, status: '已完成', task_date: TEST_DATE, sub_tasks: [] });
+    await post('/api/retrospectives', { main_task_id: m.id, purpose_actual: '已有内容', lessons: '原经验' });
+    const r1 = await post(`/api/retrospectives/${m.id}/append`, { field: 'purpose_actual', text: '新反思一' });
+    const r2 = await post(`/api/retrospectives/${m.id}/append`, { field: 'purpose_actual', text: '新反思二' });
+    const bad = await post(`/api/retrospectives/${m.id}/append`, { field: 'hack_field', text: 'x' });
+    const ok = r1.status === 200 && r1.body.purpose_actual === '已有内容\n新反思一'
+      && r2.body.purpose_actual === '已有内容\n新反思一\n新反思二'
+      && r2.body.lessons === '原经验'
+      && bad.status === 400;
+    record('采纳追加不覆盖已有复盘内容', ok,
+      `v="${(r2.body.purpose_actual || '').split('\n').join('|')}", lessons保留=${r2.body.lessons === '原经验'}, bad=${bad.status}`);
+  }
+  {
+    // 总结报告保存与读取
+    const { body: m } = await post('/api/main-tasks', { name: '总结导出校验', content: 'x', priority: 5, status: '已完成', task_date: TEST_DATE, sub_tasks: [] });
+    await post('/api/retrospectives', { main_task_id: m.id, lessons: '经验X', summary_report: '总结XYZ内容' });
+    const got = await get(`/api/retrospectives/${m.id}`);
+    record('总结报告保存与读取', got.body.summary_report === '总结XYZ内容',
+      `summary=${got.body.summary_report}`);
+  }
+  if (AI_KEY) {
+    {
+      // AI 复盘追问：最多 5 个问题
+      const { body: m } = await post('/api/main-tasks', { name: 'AI追问校验', content: '完成了测试工作', priority: 5, status: '已完成', task_date: TEST_DATE, sub_tasks: [{ name: '准备' }, { name: '执行' }] });
+      const r = await post('/api/ai/retrospect-questions', { mainTaskId: m.id });
+      const qs = r.body && r.body.questions;
+      const ok = r.status === 200 && Array.isArray(qs) && qs.length <= 5;
+      record('AI复盘追问（问题不超过5个）', ok,
+        `count=${Array.isArray(qs) ? qs.length : 'n/a'}, status=${r.status}`);
+      // 总结报告：跳过所有追问也基于任务数据生成
+      const s1 = await post('/api/ai/retrospect-summary', { mainTaskId: m.id, answers: [] });
+      const okSkip = s1.status === 200 && typeof s1.body.report === 'string' && s1.body.report.length > 0;
+      record('AI总结报告（跳过全部追问仍生成）', okSkip,
+        `status=${s1.status}, len=${s1.body && s1.body.report ? s1.body.report.length : 0}`);
+      // 带回答（含编辑后的回答）生成
+      const s2 = await post('/api/ai/retrospect-summary', { mainTaskId: m.id, answers: [
+        { question: '测试问题', answer: '我修改后的回答内容', skipped: false },
+        { question: '跳过的问题', answer: '', skipped: true },
+      ] });
+      const okEdit = s2.status === 200 && typeof s2.body.report === 'string' && s2.body.report.length > 0;
+      record('AI总结报告（修改回答后重新生成）', okEdit,
+        `status=${s2.status}, len=${s2.body && s2.body.report ? s2.body.report.length : 0}`);
+    }
+  } else {
+    console.log('  [SKIP] AI 复盘追问/总结测试 — 未设置 QIJI_DEEPSEEK_API_KEY');
+  }
 }
 
 // ─── 主流程 ────────────────────────────────────────────

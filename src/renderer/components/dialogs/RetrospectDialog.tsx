@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Modal, Form, Input, Button, message, Row, Col, Tag } from 'antd';
-import { DownloadOutlined } from '@ant-design/icons';
+import { Modal, Form, Input, Button, message, Row, Col, Tag, Checkbox, Select } from 'antd';
+import { DownloadOutlined, RobotOutlined, HighlightOutlined } from '@ant-design/icons';
 import { api } from '../../utils/api-client';
 import { useLang } from '../../context/LanguageContext';
 import { statusText } from '../../i18n';
@@ -31,6 +31,19 @@ const RetrospectDialog: React.FC<{
   const { t, lang } = useLang();
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
+  // AI 复盘追问
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [questions, setQuestions] = useState<string[]>([]);
+  const [answers, setAnswers] = useState<Record<number, string>>({});
+  const [skipped, setSkipped] = useState<Record<number, boolean>>({});
+  // 基本情况总结报告
+  const [summaryReport, setSummaryReport] = useState('');
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [attachSummary, setAttachSummary] = useState(false);
+  // 采纳
+  const [adoptFor, setAdoptFor] = useState<number | null>(null);
+  const [adoptField, setAdoptField] = useState('lessons');
 
   useEffect(() => {
     let totalMinutes = 0;
@@ -46,8 +59,16 @@ const RetrospectDialog: React.FC<{
     const timeStr = hours > 0 ? `${hours}h${mins}m` : `${mins}m`;
 
     api.getRetrospective(task.id).then(existing => {
-      if (existing) { form.setFieldsValue(existing); setSaved(true); }
-      else { form.setFieldsValue({ time_actual: timeStr }); }
+      if (existing) {
+        form.setFieldsValue(existing);
+        setSaved(true);
+        if ((existing as any).summary_report) {
+          setSummaryReport((existing as any).summary_report);
+          setAttachSummary(true);
+        }
+      } else {
+        form.setFieldsValue({ time_actual: timeStr });
+      }
     }).catch(() => {
       form.setFieldsValue({ time_actual: timeStr });
     });
@@ -57,7 +78,7 @@ const RetrospectDialog: React.FC<{
     const values = form.getFieldsValue();
     setLoading(true);
     try {
-      await api.saveRetrospective({ ...values, main_task_id: task.id });
+      await api.saveRetrospective({ ...values, main_task_id: task.id, summary_report: attachSummary ? summaryReport : '' });
       message.success(t('retro.saved'));
       setSaved(true);
     } catch (e: any) { message.error(e.message || 'Save failed'); }
@@ -69,6 +90,50 @@ const RetrospectDialog: React.FC<{
       const projectName = (task as any).project_name || t('retro.noGroup');
       await api.exportRetrospectiveMarkdown(projectName, false, task.name);
     } catch (e: any) { message.error('Export failed'); }
+  };
+
+  const buildAnswers = () => questions.map((q, i) => ({
+    question: q,
+    answer: answers[i] || '',
+    skipped: !!skipped[i],
+  }));
+
+  const handleAskAI = async () => {
+    setAiLoading(true);
+    try {
+      const r = await api.aiRetrospectQuestions(task.id);
+      setQuestions(r.questions || []);
+      setAnswers({});
+      setSkipped({});
+      setAiOpen(true);
+      if (!r.questions || r.questions.length === 0) message.info(t('retro.questionsEmpty'));
+    } catch (e: any) { message.error(e.message || t('retro.aiFail')); }
+    setAiLoading(false);
+  };
+
+  const handleGenSummary = async () => {
+    setSummaryLoading(true);
+    try {
+      const r = await api.aiRetrospectSummary(task.id, buildAnswers());
+      setSummaryReport(r.report || '');
+      setAttachSummary(true);
+      setAiOpen(false);
+    } catch (e: any) { message.error(e.message || t('retro.aiFail')); }
+    setSummaryLoading(false);
+  };
+
+  const handleAdopt = async () => {
+    if (adoptFor === null) return;
+    const text = answers[adoptFor] || '';
+    if (!text.trim()) { message.warning(t('retro.answerPh')); return; }
+    try {
+      const updated = await api.appendRetrospectiveField(task.id, adoptField, text);
+      form.setFieldsValue({ [adoptField]: updated[adoptField] });
+      setSaved(true);
+      const labelKey = adoptField === 'lessons' ? 'retro.lessons' : (FIELDS.find(f => f.key === adoptField)?.labelKey || adoptField);
+      message.success(t('retro.adopted').split('{f}').join(t(labelKey)));
+      setAdoptFor(null);
+    } catch (e: any) { message.error(e.message); }
   };
 
   const taskFields = [
@@ -126,8 +191,13 @@ const RetrospectDialog: React.FC<{
 
         {/* Right: Retrospective form */}
         <Col span={14}>
-          <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8, color: 'var(--color-text-secondary)' }}>
-            {t('retro.formTitle')}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-secondary)' }}>
+              {t('retro.formTitle')}
+            </span>
+            <Button size="small" icon={<RobotOutlined />} loading={aiLoading} onClick={handleAskAI}>
+              {t('retro.aiAsk')}
+            </Button>
           </div>
           <Form form={form} layout="vertical" size="small">
             {FIELDS.map(f => (
@@ -143,8 +213,88 @@ const RetrospectDialog: React.FC<{
               <TextArea rows={3} placeholder={t('retro.lessonsPh')} />
             </Form.Item>
           </Form>
+
+          {/* 基本情况总结报告 */}
+          <div style={{ marginTop: 10, padding: '8px 10px', background: 'var(--color-bg-hover)', borderRadius: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, fontWeight: 500 }}>{t('retro.summaryTitle')}</span>
+              <Button size="small" loading={summaryLoading} onClick={handleGenSummary}>
+                {summaryReport ? t('retro.regenSummary') : t('retro.genSummary')}
+              </Button>
+              <Checkbox checked={attachSummary} disabled={!summaryReport}
+                onChange={e => setAttachSummary(e.target.checked)}>
+                <span style={{ fontSize: 12 }}>{t('retro.attachSummary')}</span>
+              </Checkbox>
+            </div>
+            <TextArea rows={5} value={summaryReport} onChange={e => setSummaryReport(e.target.value)}
+              placeholder={t('retro.summaryPh')} />
+          </div>
         </Col>
       </Row>
+
+      {/* AI 复盘追问弹框 */}
+      {aiOpen && (
+        <Modal
+          open
+          title={t('retro.aiAskTitle')}
+          width={680}
+          zIndex={2200}
+          onCancel={() => setAiOpen(false)}
+          footer={null}
+        >
+          <div style={{ maxHeight: '52vh', overflow: 'auto' }}>
+            {questions.map((q, i) => (
+              <div key={i} style={{ marginBottom: 12, padding: '8px 10px', border: '1px solid var(--color-border)', borderRadius: 6 }}>
+                <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 6 }}>{i + 1}. {q}</div>
+                <TextArea rows={2} value={answers[i] || ''} disabled={!!skipped[i]}
+                  onChange={e => setAnswers({ ...answers, [i]: e.target.value })}
+                  placeholder={t('retro.answerPh')} />
+                <div style={{ marginTop: 6, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <Button size="small" type={skipped[i] ? 'primary' : 'default'}
+                    onClick={() => setSkipped({ ...skipped, [i]: !skipped[i] })}>
+                    {skipped[i] ? t('retro.skipped') : t('retro.skip')}
+                  </Button>
+                  <Button size="small" icon={<HighlightOutlined />}
+                    disabled={!answers[i] || !String(answers[i]).trim() || !!skipped[i]}
+                    onClick={() => { setAdoptFor(i); setAdoptField('lessons'); }}>
+                    {t('retro.adopt')}
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+            <Button onClick={() => setAiOpen(false)}>{t('common.cancel')}</Button>
+            <Button type="primary" loading={summaryLoading} onClick={handleGenSummary}>
+              {t('retro.genSummary')}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* 采纳字段选择 */}
+      {adoptFor !== null && (
+        <Modal
+          open
+          title={t('retro.adoptTitle')}
+          width={400}
+          zIndex={2300}
+          okText={t('retro.adopt')}
+          cancelText={t('common.cancel')}
+          onOk={handleAdopt}
+          onCancel={() => setAdoptFor(null)}
+        >
+          <Select
+            style={{ width: '100%' }}
+            value={adoptField}
+            onChange={setAdoptField}
+            options={[
+              ...FIELDS.map(f => ({ value: f.key, label: t(f.labelKey) })),
+              { value: 'lessons', label: t('retro.lessons') },
+            ]}
+          />
+        </Modal>
+      )}
     </Modal>
   );
 };

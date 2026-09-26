@@ -38,8 +38,15 @@
 2. **同步 release**：源码改完编译后，必须同步 `dist/`、`themes/`、`quit-handler.js`、NW 配置等到 `release/qiji-kanban/`，并核对哈希。
 3. **改动前报告**：涉及前端 UI、数据结构、依赖删除的操作，先报告等确认，不要自作主张。
 4. **不得删除 openai 包**（连接 DeepSeek 必需）；**不得盲目执行 npm audit fix --force**（属破坏性变更）；npm audit 目标保持 0 漏洞（exceljs 已移除，导出功能为纯 CSV 实现）。
-5. **自动化测试**：`node-portable\node.exe test-api.js`，35 个用例必须全绿；测试自带数据库备份还原，无需人工干预。
+5. **自动化测试**：`node-portable\node.exe test-api.js`，97 个用例必须全绿；测试自带数据库备份还原，无需人工干预。
 6. 常用命令：`npm run build`（tsc + webpack）、`npm start`（开发模式）、`npm install` 后需确认 test-api 全绿。
+7. **文件修改强制约束**：严禁使用 PowerShell 脚本读写任何源码文件、测试文件、配置文件（`Get-Content -Raw` + `Set-Content` 曾因默认 ANSI 编码损坏中文，造成 100+ 编译错误且不可逆）；所有修改必须使用 Edit/Write 工具。读取日志文件时使用 `Get-Content -Encoding UTF8`。
+
+## 四点五、已知坑（务必遵守）
+
+1. **antd `Modal.confirm` 静态方法在 NW.js 环境下 OK 按钮点击不可靠**（onOk 不触发、无异常、弹框不关闭）；所有确认弹框必须用自定义 `<Modal>` + 显式 `onClick` 实现（参见 App.tsx 的启动待确认弹框、TaskFormDialog 的归属确认弹框）。
+2. **NW.js 对回环地址（localhost ↔ 127.0.0.1）不执行跨源隔离**，且 iframe 渲染层可能浮在页面 DOM 之上；动态皮肤沙箱必须使用"外层 wrapper + 内层 opaque-origin sandbox iframe + guard 脚本"双层方案，不能只靠 z-index。
+3. **计时段、状态历史等表的 task_id 引用必须在迁移时同步更新**；迁移前必须备份数据库（`kanban.db.premigration-*.bak`），迁移后必须做一致性校验（`GET /api/debug/consistency`）。
 
 ## 五、当前状态（V1.0.1）
 

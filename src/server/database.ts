@@ -157,6 +157,8 @@ export function initDatabase(): void {
   try { db.exec("ALTER TABLE main_tasks ADD COLUMN repeat_frequency TEXT DEFAULT 'none'"); } catch(e) {}
   try { db.exec('ALTER TABLE main_tasks ADD COLUMN repeat_base_date TEXT'); } catch(e) {}
   db.exec('CREATE INDEX IF NOT EXISTS idx_main_tasks_repeat ON main_tasks(repeat_frequency);');
+  // Migration: 复盘基本情况总结报告（V1.1.0，向后兼容）
+  try { db.exec("ALTER TABLE retrospectives ADD COLUMN summary_report TEXT DEFAULT ''"); } catch(e) {}
 
   // 全局唯一任务ID序列表（V1.1.0）：职责单一——只负责发放全局唯一任务ID。
   // 主任务与子任务创建时都从该表取号，保证两者 ID 全局不撞号。
@@ -1085,8 +1087,79 @@ export function getTimerSummary(mainTaskId: number): any {
   };
 }
 
-// ---- 测试辅助（debug 路由使用）----
+// 红蓝双条可视化数据（V1.1.0，服务端计算，前端只读渲染）
+// 红色 = 计划工期（任务的 start_date~end_date）；蓝色 = 实际计时时段（可多段）
+// 横轴 = 所有可见条的最早起点 ~ 最晚终点（不额外留白）；无计划时间时只返回蓝条数据
+export function getTimerVisualization(mainTaskId: number): any {
+  const main = db.prepare('SELECT * FROM main_tasks WHERE id = ?').get(mainTaskId) as any;
+  if (!main) return null;
+  const subs = db.prepare('SELECT * FROM sub_tasks WHERE main_task_id = ? ORDER BY sort_order ASC, created_at ASC').all(mainTaskId) as any[];
+  const dateOnly = (s: string) => String(s || '').slice(0, 10);
+  const dayDiff = (d1: string, d2: string) => Math.round((new Date(d2 + 'T00:00:00').getTime() - new Date(d1 + 'T00:00:00').getTime()) / 86400000);
+  const nowMin = localNowMinute();
 
+  const buildRow = (kind: 'main' | 'sub', id: number, name: string, planStart: string | null, planEnd: string | null, segs: any[]) => {
+    let plan: any = null;
+    if (planStart || planEnd) {
+      const ps = dateOnly((planStart || planEnd) as string);
+      const pe = dateOnly((planEnd || planStart) as string);
+      plan = { start: ps, end: pe, days: dayDiff(ps, pe) + 1 };
+    }
+    const actual = segs
+      .map((s: any) => ({ start: s.start_time, end: s.end_time || nowMin, open: !s.end_time }))
+      .sort((a: any, b: any) => (a.start < b.start ? -1 : 1));
+    const actualMinutes = segs.filter((s: any) => s.is_valid === 1).reduce((sum: number, s: any) => sum + (s.duration || 0), 0);
+    const starts: string[] = [];
+    const ends: string[] = [];
+    if (plan) { starts.push(plan.start); ends.push(plan.end); }
+    for (const a of actual) { starts.push(dateOnly(a.start)); ends.push(dateOnly(a.end)); }
+    if (starts.length === 0) return null;
+    const axisStart = starts.reduce((m, x) => (x < m ? x : m));
+    const axisEnd = ends.reduce((m, x) => (x > m ? x : m));
+    return {
+      kind, id, name,
+      plan,
+      planDays: plan ? plan.days : null,
+      actualSegments: actual,
+      actualMinutes,
+      axisStart, axisEnd, axisDays: dayDiff(axisStart, axisEnd) + 1,
+    };
+  };
+
+  const rows: any[] = [];
+  if (subs.length === 0) {
+    const row = buildRow('main', main.id, main.name, main.start_date, main.end_date, getTimeSegments('main', main.id));
+    if (row) rows.push(row);
+  } else {
+    for (const s of subs) {
+      const row = buildRow('sub', s.id, s.name, s.start_date, s.end_date, getTimeSegments('sub', s.id));
+      if (row) rows.push(row);
+    }
+  }
+  return { mainTaskId, rows };
+}
+
+// 复盘 AI 完整数据（不压缩）：任务表单全部字段 + 子任务 + 状态时间线 + 计时数据 + 时间戳
+export function getRetrospectAIData(mainTaskId: number): any {
+  const main = db.prepare('SELECT * FROM main_tasks WHERE id = ?').get(mainTaskId) as any;
+  if (!main) return null;
+  const subs = db.prepare('SELECT * FROM sub_tasks WHERE main_task_id = ? ORDER BY sort_order ASC, created_at ASC').all(mainTaskId) as any[];
+  const history = db.prepare(`
+    SELECT * FROM status_change_history
+    WHERE (task_type = 'main' AND task_id = ?)
+       OR (task_type = 'sub' AND task_id IN (SELECT id FROM sub_tasks WHERE main_task_id = ?))
+    ORDER BY changed_at ASC, id ASC
+  `).all(mainTaskId, mainTaskId);
+  const segments = db.prepare(`
+    SELECT * FROM time_segments
+    WHERE (task_type = 'main' AND task_id = ?)
+       OR (task_type = 'sub' AND task_id IN (SELECT id FROM sub_tasks WHERE main_task_id = ?))
+    ORDER BY start_time ASC, id ASC
+  `).all(mainTaskId, mainTaskId);
+  return { main, subs, history, segments };
+}
+
+// ---- 测试辅助（debug 路由使用）----
 // 把某个计时段的开始时间往前挪 minutes 分钟（用于模拟超长段）
 export function backdateSegment(id: number, minutes: number): void {
   const seg = getTimeSegment(id) as any;
@@ -1372,8 +1445,8 @@ export function getExpiredTasks(taskDate: string) {
 export function saveRetrospective(data: any) {
   const timestamp = now();
   db.prepare(`INSERT OR REPLACE INTO retrospectives
-    (main_task_id, purpose_actual, expectations_actual, target_actual, resource_actual, methods_actual, hints_actual, time_actual, relevants_actual, lessons, created_at)
-    VALUES (@main_task_id, @purpose_actual, @expectations_actual, @target_actual, @resource_actual, @methods_actual, @hints_actual, @time_actual, @relevants_actual, @lessons, @created_at)
+    (main_task_id, purpose_actual, expectations_actual, target_actual, resource_actual, methods_actual, hints_actual, time_actual, relevants_actual, lessons, summary_report, created_at)
+    VALUES (@main_task_id, @purpose_actual, @expectations_actual, @target_actual, @resource_actual, @methods_actual, @hints_actual, @time_actual, @relevants_actual, @lessons, @summary_report, @created_at)
   `).run({
     main_task_id: data.main_task_id,
     purpose_actual: data.purpose_actual || '',
@@ -1385,9 +1458,27 @@ export function saveRetrospective(data: any) {
     time_actual: data.time_actual || '',
     relevants_actual: data.relevants_actual || '',
     lessons: data.lessons || '',
+    summary_report: data.summary_report || '',
     created_at: timestamp,
   });
   return db.prepare('SELECT * FROM retrospectives WHERE main_task_id = ?').get(data.main_task_id);
+}
+
+// AI 追问回答采纳：追加到指定复盘字段（不覆盖已有内容）
+const RETRO_FIELD_KEYS = ['purpose_actual', 'expectations_actual', 'target_actual', 'resource_actual', 'methods_actual', 'hints_actual', 'time_actual', 'relevants_actual', 'lessons'];
+
+export function appendRetrospectiveField(mainTaskId: number, field: string, text: string, lang: ServerLang = 'zh'): any {
+  if (!RETRO_FIELD_KEYS.includes(field)) throw new Error(te(lang, 'retro.invalidField'));
+  if (!text || !text.trim()) throw new Error(te(lang, 'retro.emptyText'));
+  const existing = getRetrospective(mainTaskId) as any;
+  const base = existing ? String(existing[field] || '') : '';
+  const next = base ? `${base}\n${text.trim()}` : text.trim();
+  if (existing) {
+    db.prepare(`UPDATE retrospectives SET ${field} = ? WHERE main_task_id = ?`).run(next, mainTaskId);
+  } else {
+    saveRetrospective({ main_task_id: mainTaskId, [field]: next });
+  }
+  return getRetrospective(mainTaskId);
 }
 
 export function getRetrospective(mainTaskId: number) {

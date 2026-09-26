@@ -63,6 +63,9 @@ import {
   backdateSegment,
   checkDataConsistency,
   cleanupOrphanTimers,
+  getTimerVisualization,
+  getRetrospectAIData,
+  appendRetrospectiveField,
 } from './database';
 import { te, getReqLang } from './messages';
 
@@ -389,6 +392,14 @@ app.get('/api/timer/pending', (_req, res) => {
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
+app.get('/api/timer/visualization', (req, res) => {
+  try {
+    const mainTaskId = Number(req.query.mainTaskId);
+    if (!mainTaskId) return res.status(400).json({ error: te(getReqLang(req), 'param.invalid') });
+    res.json(getTimerVisualization(mainTaskId));
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 app.put('/api/timer/segments/:id/confirm', (req, res) => {
   try {
     const seg = confirmTimeSegment(Number(req.params.id), getReqLang(req));
@@ -683,6 +694,7 @@ app.post('/api/retrospectives/export-markdown', (req, res) => {
       md += `| 工期 | ${row.duration || '--'} | ${row.time_actual || '--'} |\n`;
       md += `| 相关方 | ${row.relevants || '--'} | ${row.relevants_actual || '--'} |\n\n`;
       if (row.lessons) md += `**经验教训**：${row.lessons}\n\n`;
+      if (row.summary_report) md += `**基本情况总结报告（AI）**：\n\n${row.summary_report}\n\n`;
       md += '---\n\n';
     }
     if (aiSummary) {
@@ -826,7 +838,6 @@ app.post('/api/ai/parse', async (req, res) => {
 });
 
 // ==================== AI Highlight (表单划重点) ====================
-
 app.post('/api/ai/highlight', async (req, res) => {
   try {
     const { fields } = req.body;
@@ -879,6 +890,128 @@ app.post('/api/ai/highlight', async (req, res) => {
   } catch (e: any) {
     res.status(500).json({ error: e.message || 'AI 划重点失败' });
   }
+});
+
+// ==================== AI Retrospective (复盘追问 / 基本情况总结) ====================
+
+// 把任务完整数据转成给 AI 的上下文文本（不压缩）
+function buildRetroAIContext(data: any): string {
+  const { main, subs, history, segments } = data;
+  const lines: string[] = [];
+  lines.push(`【任务】${main.letter}. ${main.name}（状态：${main.status}）`);
+  lines.push(`创建时间：${main.created_at}；任务日期：${main.task_date}；状态最近变更：${main.status_changed_at || '—'}`);
+  lines.push(`项目：${main.project_name || '—'}；优先级：${main.priority}；开始/结束日期：${main.start_date || '—'} ~ ${main.end_date || '—'}`);
+  lines.push(`目标：${main.purpose || '—'}`);
+  lines.push(`资源：${main.resources || '—'}`);
+  lines.push(`工期（计划）：${main.duration || '—'}`);
+  lines.push(`预期效果：${main.effect || '—'}`);
+  lines.push(`注意要点：${main.hints || '—'}`);
+  lines.push(`实现路径：${main.approach || '—'}`);
+  lines.push(`相关方：${main.relevants || '—'}`);
+  lines.push(`内容与执行情况评估：${main.content || '—'}`);
+  lines.push('');
+  lines.push(`【子任务】共 ${subs.length} 个`);
+  for (const s of subs) {
+    lines.push(`- #${s.id} ${s.name}（状态：${s.status}；创建：${s.created_at}；完成：${s.completed_at || '—'}；计划：${s.start_date || '—'} ~ ${s.end_date || '—'}）`);
+    if (s.purpose || s.resources || s.effect || s.hints || s.approach || s.relevants || s.content) {
+      lines.push(`  目标：${s.purpose || '—'}；资源：${s.resources || '—'}；预期：${s.effect || '—'}；要点：${s.hints || '—'}；路径：${s.approach || '—'}；相关方：${s.relevants || '—'}；内容：${s.content || '—'}`);
+    }
+  }
+  lines.push('');
+  lines.push(`【状态变更时间线】共 ${history.length} 条`);
+  for (const h of history) {
+    const who = h.task_type === 'main' ? '主任务' : `子任务#${h.task_id}`;
+    lines.push(`- ${h.changed_at} ${who} ${h.from_status} → ${h.to_status}`);
+  }
+  lines.push('');
+  lines.push(`【计时记录】共 ${segments.length} 段`);
+  let total = 0;
+  for (const g of segments) {
+    const who = g.task_type === 'main' ? '主任务' : `子任务#${g.task_id}`;
+    lines.push(`- ${who} ${g.start_time} ~ ${g.end_time || '（未结束）'}｜${g.duration != null ? g.duration + ' 分钟' : '—'}｜${g.mode === 'auto' ? '自动' : '手动'}｜${g.is_valid === 1 ? '有效' : '待确认'}`);
+    if (g.is_valid === 1) total += g.duration || 0;
+  }
+  lines.push(`合计有效时长：${Math.floor(total / 60)} 小时 ${total % 60} 分钟`);
+  return lines.join('\n');
+}
+
+app.post('/api/ai/retrospect-questions', async (req, res) => {
+  try {
+    const mainTaskId = Number(req.body.mainTaskId);
+    if (!mainTaskId) return res.status(400).json({ error: te(getReqLang(req), 'param.invalid') });
+    const data = getRetrospectAIData(mainTaskId);
+    if (!data) return res.status(400).json({ error: te(getReqLang(req), 'timer.taskNotFound') });
+    const apiKey = unlockedApiKey;
+    if (!apiKey) return res.status(400).json({ error: te(getReqLang(req), 'ai.locked') });
+    const OpenAI = require('openai');
+    const client = new OpenAI({ baseURL: 'https://api.deepseek.com', apiKey });
+    const system = `你是复盘参谋。根据任务完整数据（表单内容、状态变更时间线、计时记录），生成最多 5 个最有反思价值的追问问题，帮助用户复盘。问题要具体、有针对性，避免空泛。
+只输出 JSON：{"questions":["问题1","问题2"]}。没有值得追问的内容时返回空数组。只返回 JSON，不要其他文字。`;
+    const response = await client.chat.completions.create({
+      model: 'deepseek-chat',
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: buildRetroAIContext(data) },
+      ],
+      temperature: 0.4, max_tokens: 1200,
+    });
+    let text = response.choices[0]?.message?.content || '';
+    text = text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+    const parsed = JSON.parse(text);
+    const questions = (Array.isArray(parsed.questions) ? parsed.questions : [])
+      .map((q: any) => String(q || ''))
+      .filter((q: string) => q)
+      .slice(0, 5);
+    res.json({ questions });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'AI 复盘追问失败' });
+  }
+});
+
+app.post('/api/ai/retrospect-summary', async (req, res) => {
+  try {
+    const mainTaskId = Number(req.body.mainTaskId);
+    if (!mainTaskId) return res.status(400).json({ error: te(getReqLang(req), 'param.invalid') });
+    const data = getRetrospectAIData(mainTaskId);
+    if (!data) return res.status(400).json({ error: te(getReqLang(req), 'timer.taskNotFound') });
+    const apiKey = unlockedApiKey;
+    if (!apiKey) return res.status(400).json({ error: te(getReqLang(req), 'ai.locked') });
+    const answers: any[] = Array.isArray(req.body.answers) ? req.body.answers : [];
+    const answered = answers.filter((a: any) => a && a.answer && String(a.answer).trim() && !a.skipped);
+    const OpenAI = require('openai');
+    const client = new OpenAI({ baseURL: 'https://api.deepseek.com', apiKey });
+    const system = answered.length > 0
+      ? `你是复盘参谋。请根据任务的完整数据以及用户对追问的回答，写一份"基本情况总结报告"：客观陈述任务的目标与结果、状态变化过程、实际用时情况，并结合用户回答提炼 1-3 条要点。使用简洁的 Markdown 纯文本，不要输出 JSON，不要寒暄。`
+      : `你是复盘参谋。请根据任务的完整数据（用户跳过了追问），写一份"基本情况总结报告"：客观陈述任务的目标与结果、状态变化过程、实际用时情况，并提炼 1-3 条要点。使用简洁的 Markdown 纯文本，不要输出 JSON，不要寒暄。`;
+    const userContent = buildRetroAIContext(data)
+      + (answered.length > 0
+        ? `\n\n【用户对追问的回答】\n${answered.map((a: any) => `问：${a.question}\n答：${a.answer}`).join('\n')}`
+        : '');
+    const response = await client.chat.completions.create({
+      model: 'deepseek-chat',
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: userContent },
+      ],
+      temperature: 0.4, max_tokens: 1500,
+    });
+    const report = String(response.choices[0]?.message?.content || '').trim();
+    res.json({ report });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message || 'AI 总结生成失败' });
+  }
+});
+
+app.post('/api/retrospectives/:mainTaskId/append', (req, res) => {
+  try {
+    const updated = appendRetrospectiveField(
+      Number(req.params.mainTaskId),
+      String(req.body.field || ''),
+      String(req.body.text || ''),
+      getReqLang(req)
+    );
+    res.json(updated);
+  } catch (e: any) { res.status(400).json({ error: e.message }); }
 });
 
 // ==================== Fallback: SPA routing ====================

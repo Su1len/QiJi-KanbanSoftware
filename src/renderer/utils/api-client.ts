@@ -144,6 +144,16 @@ export const api = {
     request<any>('GET', `/api/timer/summary?mainTaskId=${mainTaskId}`),
   confirmTimeSegment: (id: number) => request<any>('PUT', `/api/timer/segments/${id}/confirm`),
   getPendingSegments: () => request<{ count: number; segments: any[] }>('GET', '/api/timer/pending'),
+  getTimerVisualization: (mainTaskId: number) =>
+    request<any>('GET', `/api/timer/visualization?mainTaskId=${mainTaskId}`),
+
+  // AI retrospective（复盘追问 / 基本情况总结）
+  aiRetrospectQuestions: (mainTaskId: number) =>
+    request<{ questions: string[] }>('POST', '/api/ai/retrospect-questions', { mainTaskId }),
+  aiRetrospectSummary: (mainTaskId: number, answers: any[]) =>
+    request<{ report: string }>('POST', '/api/ai/retrospect-summary', { mainTaskId, answers }),
+  appendRetrospectiveField: (mainTaskId: number, field: string, text: string) =>
+    request<any>('POST', `/api/retrospectives/${mainTaskId}/append`, { field, text }),
 
   // Repeat tasks
   getRepeatTasks: () => request<any[]>('GET', '/api/repeats'),

@@ -106,7 +106,29 @@ const TaskFormDialog: React.FC<{
   const [hlMarks, setHlMarks] = useState<Record<string, HighlightMark>>({});
   // 计时状态
   const [timerSummary, setTimerSummary] = useState<any>(null);
+  const [viz, setViz] = useState<any>(null);
   const [subChangeConfirm, setSubChangeConfirm] = useState<{ title: string; onOk: () => void } | null>(null);
+
+  // 红蓝双条可视化数据（打开表单时取一次；任务书要求"下次打开表单"反映新起止时间）
+  useEffect(() => {
+    let cancelled = false;
+    if (!task) { setViz(null); return; }
+    api.getTimerVisualization(task.id)
+      .then(v => { if (!cancelled) setViz(v); })
+      .catch(() => { if (!cancelled) setViz(null); });
+    return () => { cancelled = true; };
+  }, [task]);
+
+  const vizPct = (row: any, d: string): number => {
+    const total = Math.max(1, row.axisDays);
+    const offset = Math.round((new Date(d + 'T00:00:00').getTime() - new Date(row.axisStart + 'T00:00:00').getTime()) / 86400000);
+    return Math.max(0, Math.min(1, offset / total)) * 100;
+  };
+  const vizSpanPct = (row: any, s: string, e: string): number => {
+    const days = Math.round((new Date(e + 'T00:00:00').getTime() - new Date(s + 'T00:00:00').getTime()) / 86400000) + 1;
+    const left = vizPct(row, s) / 100;
+    return Math.max(0.8, Math.min(1 - left, days / Math.max(1, row.axisDays)) * 100);
+  };
   const [segModal, setSegModal] = useState<{ open: boolean; mode: 'add' | 'edit'; taskType: 'main' | 'sub'; taskId: number; segId?: number; start: dayjs.Dayjs | null; end: dayjs.Dayjs | null } | null>(null);
 
   const loadTimerSummary = React.useCallback(async () => {
@@ -482,6 +504,39 @@ const TaskFormDialog: React.FC<{
               )}
             </div>
             {!timerSummary.hasSubs && renderSegments(timerSummary.mainSegments || [])}
+          </div>
+        )}
+
+        {/* 计划 vs 实际 红蓝双条（只读） */}
+        {task && viz && viz.rows && viz.rows.length > 0 && (
+          <div style={{ marginBottom: 12, padding: '10px 12px', background: 'var(--color-bg-hover)', borderRadius: 6 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 8 }}>{t('viz.title')}</div>
+            {viz.rows.map((row: any) => (
+              <div key={`${row.kind}-${row.id}`} style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 12, marginBottom: 3, color: 'var(--color-text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {row.name}
+                </div>
+                <div style={{ position: 'relative', height: 22, background: 'var(--color-bg-primary)', borderRadius: 4, overflow: 'hidden', border: '1px solid var(--color-border)' }}>
+                  {row.plan && (
+                    <div title={`${t('viz.plan')}: ${row.plan.start} ~ ${row.plan.end}`} style={{
+                      position: 'absolute', top: 2, height: 7, borderRadius: 3, background: '#e05252',
+                      left: `${vizPct(row, row.plan.start)}%`, width: `${vizSpanPct(row, row.plan.start, row.plan.end)}%`,
+                    }} />
+                  )}
+                  {row.actualSegments.map((seg: any, i: number) => (
+                    <div key={i} title={`${seg.start} ~ ${seg.end}`} style={{
+                      position: 'absolute', top: 12, height: 7, borderRadius: 3, background: '#4f8cff',
+                      left: `${vizPct(row, String(seg.start).slice(0, 10))}%`,
+                      width: `${vizSpanPct(row, String(seg.start).slice(0, 10), String(seg.end).slice(0, 10))}%`,
+                    }} />
+                  ))}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', marginTop: 2 }}>
+                  {row.planDays != null ? `${t('viz.planDays')}${row.planDays}${t('viz.days')}` : ''}
+                  {`　${t('viz.actual')}${fmtDuration(row.actualMinutes || 0)}`}
+                </div>
+              </div>
+            ))}
           </div>
         )}
 

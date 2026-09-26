@@ -29,6 +29,9 @@ const MSGS: Record<string, { zh: string; en: string }> = {
   'timer.runningReadonly': { zh: '正在计时的时段不能修改', en: 'A running time segment cannot be modified.' },
   'timer.cannotConfirmRunning': { zh: '该计时段还没有结束时间，请先修正起止时间', en: 'This segment has no end time yet. Please fix its start/end time first.' },
   'timer.notFound': { zh: '计时记录不存在', en: 'Time segment not found.' },
+  // 复盘（V1.1.0）
+  'retro.invalidField': { zh: '复盘字段无效', en: 'Invalid review field.' },
+  'retro.emptyText': { zh: '采纳内容不能为空', en: 'Adopted content cannot be empty.' },
 };
 
 export function getReqLang(req: { headers: Record<string, any> }): ServerLang {
