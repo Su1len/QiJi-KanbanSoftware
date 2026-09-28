@@ -14,7 +14,6 @@ const { TextArea } = Input;
 const THEMRPR_FIELDS = [
   { key: 'purpose', labelKey: 'field.purpose', tooltipKey: 'field.purpose.tip' },
   { key: 'resources', labelKey: 'field.resources', tooltipKey: 'field.resources.tip' },
-  { key: 'duration', labelKey: 'field.duration', tooltipKey: 'field.duration.tip', type: 'number' },
   { key: 'effect', labelKey: 'field.effect', tooltipKey: 'field.effect.tip' },
   { key: 'hints', labelKey: 'field.hints', tooltipKey: 'field.hints.tip' },
   { key: 'approach', labelKey: 'field.approach', tooltipKey: 'field.approach.tip' },
@@ -42,7 +41,9 @@ const STATUS_VALUES = ['进行中', '暂搁置', '已取消', '已完成'];
 
 export interface HighlightMark { text: string; reason: string; suggestion: string; }
 
-// 标红展示组件：字段存在已接受的 AI 标注时，用红色高亮原文替换输入控件
+// 标红展示组件：字段存在已接受的 AI 标注时，用红色高亮原文替换输入控件。
+// 关键：无标注时必须把 Form.Item 注入的受控属性（value/onChange 等）透传给输入控件，
+// 否则字段会脱离表单受控（保存读取不到值、setFieldsValue 不生效）。
 const HLField: React.FC<{
   fieldKey: string;
   form: any;
@@ -50,14 +51,20 @@ const HLField: React.FC<{
   onClear: (key: string) => void;
   children: React.ReactNode;
   valueOverride?: string | null;
-}> = ({ fieldKey, form, marks, onClear, children, valueOverride }) => {
+} & Record<string, any>> = ({ fieldKey, form, marks, onClear, children, valueOverride, ...rest }) => {
   const { t } = useLang();
   const watched = Form.useWatch(fieldKey, form);
-  const value = valueOverride !== undefined && valueOverride !== null
-    ? String(valueOverride)
-    : (watched === undefined || watched === null ? '' : String(watched));
   const mark = marks[fieldKey];
-  if (!mark) return <>{children}</>;
+  if (!mark) {
+    const child = React.Children.only(children) as React.ReactElement<any>;
+    const props: any = { ...rest };
+    if (valueOverride !== undefined && valueOverride !== null) props.value = valueOverride;
+    return React.cloneElement(child, props);
+  }
+  const rawValue = valueOverride !== undefined && valueOverride !== null
+    ? valueOverride
+    : (rest.value !== undefined && rest.value !== null ? rest.value : watched);
+  const value = rawValue === undefined || rawValue === null ? '' : String(rawValue);
   const idx = value.indexOf(mark.text);
   return (
     <div>
@@ -387,8 +394,15 @@ const TaskFormDialog: React.FC<{
   };
   const acceptHighlights = () => {
     if (!hlResult) return;
+    const highlights = hlResult.highlights || [];
+    // 无高亮（纯追问场景）：行为明确——提示用户补充信息后关闭参考层，不产生空操作
+    if (highlights.length === 0) {
+      message.info(t('ai.hl.notesOnly'));
+      setHlResult(null);
+      return;
+    }
     const marks: Record<string, HighlightMark> = {};
-    (hlResult.highlights || []).forEach(h => {
+    highlights.forEach(h => {
       marks[h.field] = { text: h.original_text, reason: h.reason, suggestion: h.suggestion };
     });
     setHlMarks(marks);
@@ -552,10 +566,7 @@ const TaskFormDialog: React.FC<{
                   </span>
                 }>
                   <HLField fieldKey={f.key} form={form} marks={hlMarks} onClear={clearMark}>
-                    {f.key === 'duration'
-                      ? <InputNumber style={{ width: '100%' }} placeholder={lang === 'en' ? 'Days' : '整数天数'} />
-                      : <Input placeholder={t(f.labelKey)} />
-                    }
+                    <Input placeholder={t(f.labelKey)} />
                   </HLField>
                 </Form.Item>
               </Col>
@@ -781,7 +792,7 @@ const TaskFormDialog: React.FC<{
           title={t('ai.hl.title')}
           onCancel={() => setHlResult(null)}
           width={640}
-          okText={t('ai.hl.accept')}
+          okText={(hlResult.highlights || []).length > 0 ? t('ai.hl.accept') : t('common.close')}
           cancelText={t('ai.hl.cancel')}
           onOk={acceptHighlights}
           zIndex={2000}

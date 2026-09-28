@@ -703,8 +703,10 @@ app.post('/api/retrospectives/export-markdown', (req, res) => {
     }
     const d = new Date();
     const ds = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    // 文件名：ASCII 安全回退 + RFC 5987 编码（避免中文直接进入响应头导致非法字符错误）
+    const zhName = `${projectName}-复盘报告-${ds}.md`;
     res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(projectName)}-复盘报告-${ds}.md"`);
+    res.setHeader('Content-Disposition', `attachment; filename="qiji-review-${ds}.md"; filename*=UTF-8''${encodeURIComponent(zhName)}`);
     res.send(md);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
@@ -859,6 +861,7 @@ app.post('/api/ai/highlight', async (req, res) => {
 - field 必须使用输入中给出的字段键。
 - original_text 必须是输入原文中真实存在的片段。
 - 没有值得标注的内容时 highlights 为空数组。
+- 重要：如果用户填写的内容很少（例如只有任务名称、其余字段基本为空），不要进行任何高亮标注（highlights 返回空数组），改为生成 3-5 个追问问题，引导用户补充关键信息（目标、资源、预期效果、注意要点、实现路径、相关方等）。
 - 只返回 JSON，不要其他文字。`;
 
     const response = await client.chat.completions.create({

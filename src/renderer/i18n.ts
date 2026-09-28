@@ -257,6 +257,7 @@ export const MSGS: Record<string, { zh: string; en: string }> = {
   'ai.hl.followUp': { zh: 'AI 追问', en: 'Follow-up Questions' },
   'ai.hl.noHighlights': { zh: 'AI 未发现需要标注的内容。', en: 'AI found nothing worth highlighting.' },
   'ai.hl.clearMark': { zh: '取消标注', en: 'Remove mark' },
+  'ai.hl.notesOnly': { zh: '已了解追问内容；当前表单内容较少，请补充填写后再使用 AI 划重点', en: 'Follow-up questions noted. The form content is limited; please fill in more and try AI Highlight again.' },
   'project.selectPh': { zh: '选择项目', en: 'Select project' },
   'project.exportRetro': { zh: '导出复盘', en: 'Export Review' },
   'project.empty': { zh: '选择一个项目以查看看板', en: 'Select a project to view the board' },

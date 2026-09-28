@@ -1469,6 +1469,68 @@ async function runTests() {
   } else {
     console.log('  [SKIP] AI 复盘追问/总结测试 — 未设置 QIJI_DEEPSEEK_API_KEY');
   }
+
+  // ── 用例 98-101：五问题修复回归（V1.1.0） ──
+  {
+    // 手动新建任务完整字段保存（表单保存链路回归：字段全部写入并可读回）
+    const payload = {
+      name: '回归创建校验', content: '内容C', purpose: '目标P', resources: '资源R',
+      effect: '效果E', hints: '要点H', approach: '路径A', relevants: '相关方V',
+      priority: 7, status: '进行中', task_date: TEST_DATE, project_name: '回归项目', duration: '5', sub_tasks: [],
+    };
+    const { body: created } = await post('/api/main-tasks', payload);
+    const got = await get(`/api/main-tasks/${created.id}`);
+    const ok = got.body.name === '回归创建校验' && got.body.purpose === '目标P'
+      && got.body.hints === '要点H' && got.body.priority === 7 && got.body.project_name === '回归项目';
+    record('手动新建任务完整字段保存（表单链路回归）', ok,
+      `name=${got.body.name}, purpose=${got.body.purpose}, priority=${got.body.priority}`);
+  }
+  {
+    // AI 任务字段写入（要点/优先级/工期等）——模拟 AI 解析结果直接建任务并读回
+    const mockTask = {
+      name: 'AI字段校验', content: 'AI内容', purpose: 'AI目标', resources: 'AI资源',
+      duration: '3', effect: 'AI效果', hints: 'AI要点', approach: 'AI路径',
+      relevants: 'AI相关方', priority: 6, status: '进行中', project_name: 'AI项目', sub_tasks: [],
+    };
+    const { body: created } = await post('/api/main-tasks', { ...mockTask, task_date: TEST_DATE });
+    const got = await get(`/api/main-tasks/${created.id}`);
+    const ok = got.body.purpose === 'AI目标' && got.body.hints === 'AI要点'
+      && got.body.priority === 6 && got.body.duration === '3' && got.body.project_name === 'AI项目';
+    record('AI 任务字段写入（要点/优先级/工期/项目）', ok,
+      `purpose=${got.body.purpose}, hints=${got.body.hints}, priority=${got.body.priority}, duration=${got.body.duration}`);
+  }
+  {
+    // 主/子任务表单已移除工期输入项（bundle 中不应再有工期专用占位符「整数天数」）
+    let bundle = '';
+    try { bundle = fs.readFileSync(path.join(__dirname, 'dist', 'renderer', 'bundle.js'), 'utf8'); } catch {}
+    const ok = bundle.length > 0 && !bundle.includes('整数天数');
+    record('主/子任务表单已移除工期输入项（bundle 校验）', ok,
+      `bundle长度=${bundle.length}, 含工期占位符=${bundle.includes('整数天数')}`);
+  }
+  {
+    // 导出复盘 Markdown：中文项目名文件名编码（RFC 5987）+ 总结报告附加末尾
+    const { body: m } = await post('/api/main-tasks', { name: '导出校验', content: 'x', priority: 5, status: '已完成', task_date: TEST_DATE, project_name: '中文项目X', sub_tasks: [] });
+    await post('/api/retrospectives', { main_task_id: m.id, lessons: '导出经验', summary_report: '导出总结ABC' });
+    const exp = await request('POST', '/api/retrospectives/export-markdown', { projectName: '中文项目X' });
+    const md = typeof exp.body === 'string' ? exp.body : '';
+    const ok = exp.status === 200 && md.includes('导出经验') && md.includes('导出总结ABC');
+    record('导出复盘Markdown（中文文件名编码+总结附加）', ok,
+      `status=${exp.status}, 含经验=${md.includes('导出经验')}, 含总结=${md.includes('导出总结ABC')}`);
+  }
+  if (AI_KEY) {
+    {
+      // AI 划重点：近乎空表单（仅任务名称）→ 不标红名称，应输出追问
+      const r = await post('/api/ai/highlight', { fields: { name: '空表单校验任务' } });
+      const hs = (r.body && r.body.highlights) || [];
+      const qs = (r.body && r.body.follow_up_questions) || [];
+      const nameMarked = hs.some(h => h.field === 'name');
+      const ok = r.status === 200 && !nameMarked && (qs.length >= 1 || hs.length === 0);
+      record('AI划重点空表单（不标红名称，输出追问）', ok,
+        `status=${r.status}, highlights=${hs.length}, questions=${qs.length}, nameMarked=${nameMarked}`);
+    }
+  } else {
+    console.log('  [SKIP] AI 划重点空表单测试 — 未设置 QIJI_DEEPSEEK_API_KEY');
+  }
 }
 
 // ─── 主流程 ────────────────────────────────────────────

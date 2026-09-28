@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Modal, Input, Button, Form, message, Card, Tag, Space } from 'antd';
 import { RobotOutlined, CheckCircleOutlined, PlusOutlined, LockOutlined, UnlockOutlined } from '@ant-design/icons';
 import { api } from '../../utils/api-client';
@@ -30,6 +30,22 @@ const AIDialog: React.FC<{
   useEffect(() => {
     api.getCryptoStatus().then(setKeyStatus).catch(() => {});
   }, []);
+
+  // AI 解析结果的表单初始值：稳定引用（避免 TaskFormDialog 的初始化 effect 被重复触发覆盖用户编辑）
+  const initialData = useMemo(() => {
+    if (!creating || !tasks || !tasks[taskIndex]) return null;
+    const task = tasks[taskIndex];
+    return {
+      name: task.name, content: task.content || '',
+      purpose: task.purpose || '', resources: task.resources || '',
+      duration: task.duration || '', effect: task.effect || '',
+      hints: task.hints || '', approach: task.approach || '',
+      relevants: task.relevants || '', priority: task.priority || 0,
+      status: task.status || '进行中',
+      project_name: task.project_name || '',
+      sub_tasks: task.sub_tasks || [],
+    };
+  }, [creating, tasks, taskIndex]);
 
   const doParse = async (text: string, history?: any[]) => {
     if (!text.trim()) return;
@@ -81,23 +97,13 @@ const AIDialog: React.FC<{
   };
 
   // If in creation mode, show sequential TaskFormDialogs
-  if (creating && tasks && taskIndex < tasks.length) {
-    const task = tasks[taskIndex];
+  if (creating && tasks && taskIndex < tasks.length && initialData) {
     return (
       <TaskFormDialog
         mode={mode}
         task={null}
         selectedDate={selectedDate}
-        initialData={{
-          name: task.name, content: task.content || '',
-          purpose: task.purpose || '', resources: task.resources || '',
-          duration: task.duration || '', effect: task.effect || '',
-          hints: task.hints || '', approach: task.approach || '',
-          relevants: task.relevants || '', priority: task.priority || 0,
-          status: task.status || '进行中',
-          project_name: task.project_name || '',
-          sub_tasks: task.sub_tasks || [],
-        }}
+        initialData={initialData}
         onSubmit={async (data) => {
           try {
             await api.createMainTask({ ...data, task_date: selectedDate });
