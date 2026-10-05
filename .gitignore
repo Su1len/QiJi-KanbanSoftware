@@ -35,3 +35,8 @@ Thumbs.db
 github-push-guide.md
 logo_qiji.jpg
 readme-draft.md
+
+# 纵深防御：敏感文件独立规则
+*.db
+api-key.enc
+亲笔信.pdf

@@ -341,7 +341,7 @@ export const MSGS: Record<string, { zh: string; en: string }> = {
   'quote.a2': { zh: '井深大', en: 'Masaru Ibuka' },
   'quote.a3': { zh: '盛田昭夫', en: 'Akio Morita' },
   'quote.a4': { zh: '孙海鸥老师', en: 'Sunny Sun' },
-  'quote.a5': { zh: '刘睿峰', en: 'Liu Ruifeng' },
+  'quote.a5': { zh: '昭深', en: 'ZhaoShen' },
   'quote.a6': { zh: '李小龙', en: 'Bruce Lee' },
   'quote.a7': { zh: '英国二战宣传海报', en: 'British WWII poster' },
   'quote.a8': { zh: '丘吉尔', en: 'Winston Churchill' },
